@@ -90,7 +90,6 @@ async fn main() {
 async fn run() {
     teloxide::enable_logging!();
     log::info!("Starting simple_commands_bot...");
-
     let bot = Bot::from_env();
     Dispatcher::new(bot)
         .callback_queries_handler(handle_callback)
