@@ -29,7 +29,7 @@ impl StoreHandler {
             PickleDbDumpPolicy::AutoDump,
             SerializationMethod::Json,
         );
-        let db = if loaded_db.is_ok() {
+        let mut db = if loaded_db.is_ok() {
             loaded_db.unwrap()
         } else {
             PickleDb::new(
@@ -38,7 +38,10 @@ impl StoreHandler {
                 SerializationMethod::Json,
             )
         };
-
+        let key: String = DBKeys::Meals.into();
+        if !db.lexists(&key) {
+            let _ = db.lcreate(&key);
+        }
         StoreHandler { db }
     }
 
