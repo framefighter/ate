@@ -38,28 +38,35 @@ enum Command {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Meal {
     name: String,
-    rating: u8,
+    rating: Option<u8>,
     id: usize,
+    recipe: Option<String>,
 }
 
 impl Meal {
     fn new(name: String) -> Self {
         Self {
-            name: name,
-            rating: 0,
             id: get_id(),
+            name: name,
+            recipe: None,
+            rating: None,
         }
     }
 
     fn rate(&mut self, rating: u8) -> Self {
-        self.rating = rating;
+        self.rating = Some(rating);
         self.clone()
+    }
+
+    fn save(self, state: &Arc<RwLock<State>>) -> Self {
+        state.write().meals.insert(self.id, self.clone());
+        self
     }
 }
 
 struct State {
     sh: StoreHandler,
-    buttons: HashMap<usize, Button>,
+    keyboards: HashMap<usize, Keyboard>,
     meals: HashMap<usize, Meal>,
 }
 
@@ -67,7 +74,7 @@ impl Default for State {
     fn default() -> Self {
         Self {
             sh: StoreHandler::new(),
-            buttons: HashMap::new(),
+            keyboards: HashMap::new(),
             meals: HashMap::new(),
         }
     }
@@ -77,90 +84,136 @@ impl Default for State {
 enum ButtonKind {
     SaveMeal { meal_id: usize },
     RateMeal { meal_id: usize, rating: u8 },
-    Cancel,
+    CancelMeal { meal_id: usize },
+}
+
+#[derive(Debug, Clone)]
+struct Keyboard {
+    id: usize,
+    buttons: Vec<Vec<Button>>,
+}
+
+impl Keyboard {
+    pub fn new() -> Self {
+        Self {
+            id: get_id(),
+            buttons: vec![],
+        }
+    }
+
+    pub fn buttons(mut self, buttons: Vec<Vec<Button>>) -> Self {
+        self.buttons = buttons
+            .clone()
+            .iter_mut()
+            .map(|row| {
+                row.iter_mut()
+                    .map(|btn| {
+                        btn.keyboard_id = Some(self.id);
+                        btn.clone()
+                    })
+                    .collect()
+            })
+            .collect();
+        self
+    }
+
+    pub fn get_btn(&self, button_id: usize) -> Option<&Button> {
+        self.buttons
+            .iter()
+            .flatten()
+            .find(|btn| btn.id == button_id)
+    }
+
+    pub fn inline_keyboard(&self) -> InlineKeyboardMarkup {
+        let keyboard: Vec<Vec<InlineKeyboardButton>> = self
+            .buttons
+            .iter()
+            .map(|row| row.iter().map(|btn| btn.callback_button()).collect())
+            .collect();
+        InlineKeyboardMarkup::new(keyboard)
+    }
+
+    pub fn save(self, state: &Arc<RwLock<State>>) -> Self {
+        state.write().keyboards.insert(self.id, self.clone());
+        self
+    }
 }
 
 #[derive(Debug, Clone)]
 struct Button {
     text: String,
     id: usize,
+    keyboard_id: Option<usize>,
     kind: ButtonKind,
 }
 
 impl Button {
     pub fn new(text: String, kind: ButtonKind) -> Self {
         Self {
-            text: text,
             id: get_id(),
-            kind: kind,
+            text,
+            keyboard_id: None,
+            kind,
         }
     }
 
     pub fn callback_button(&self) -> InlineKeyboardButton {
-        InlineKeyboardButton::callback(self.text.to_uppercase(), self.id.to_string())
+        if let Some(keyboard_id) = self.keyboard_id {
+            InlineKeyboardButton::callback(
+                self.text.to_uppercase(),
+                format!("{}.{}", keyboard_id, self.id),
+            )
+        } else {
+            InlineKeyboardButton::callback(self.text.to_uppercase(), format!(".{}", self.id))
+        }
     }
 }
 
-fn rate_meal_buttons(
-    state: &Arc<RwLock<State>>,
-    max_rating: u8,
-    rating: u8,
-    meal_id: usize,
-) -> Vec<InlineKeyboardButton> {
-    (1..=max_rating)
+fn rate_meal_button_row(rating: u8, meal_id: usize) -> Vec<Button> {
+    (1..=MAX_RATING)
         .into_iter()
         .map(|r| {
-            let btn = Button::new(
+            Button::new(
                 if r <= rating { "⭐" } else { "⚫" }.to_string(),
                 ButtonKind::RateMeal { meal_id, rating: r },
-            );
-            state.write().buttons.insert(btn.id, btn.clone());
-            btn.callback_button()
+            )
         })
         .collect()
 }
 
-fn save_meal_buttons(state: &Arc<RwLock<State>>, meal_id: usize) -> Vec<InlineKeyboardButton> {
-    // create buttons and callback_buttons
+fn save_meal_button_row(meal_id: usize) -> Vec<Button> {
     let save_button = Button::new("Save Meal".to_uppercase(), ButtonKind::SaveMeal { meal_id });
-    let save_cb_button = save_button.callback_button();
-    let cancel_button = Button::new("Cancel".to_uppercase(), ButtonKind::Cancel);
-    let cancel_cb_button = cancel_button.callback_button();
-    // save buttons
-    state.write().buttons.insert(save_button.id, save_button);
-    state
-        .write()
-        .buttons
-        .insert(cancel_button.id, cancel_button);
-    vec![save_cb_button, cancel_cb_button]
+    let cancel_button = Button::new("Cancel".to_uppercase(), ButtonKind::CancelMeal { meal_id });
+    vec![save_button, cancel_button]
 }
 
 async fn handle_message(state: Arc<RwLock<State>>, rx: DispatcherHandlerRx<Message>) {
     rx.map(|cx| (cx, state.clone()))
         .for_each_concurrent(None, |(cx, state)| async move {
-            let text = cx.update.text().unwrap();
-            let command = Command::parse(text, "name").unwrap();
-            let _ = match command {
-                Command::Help => cx.answer(Command::descriptions()).send().await,
-                Command::NewMeal(meal_name) => {
-                    // create new meal and store in meals
-                    let meal = Meal::new(meal_name.clone());
-                    let meal_id = meal.id;
-                    // save meals
-                    state.write().meals.insert(meal_id, meal.clone());
-                    cx.answer(format!(
-                        "MEAL: [{}]\nRATING: [{}]\n\nHow did it taste!",
-                        meal.name, meal.rating
-                    ))
-                    .reply_markup(
-                        InlineKeyboardMarkup::default()
-                            .append_row(rate_meal_buttons(&state, MAX_RATING, 0, meal_id)),
-                    )
-                    .send()
-                    .await
+            if let Some(text) = cx.update.text() {
+                if let Ok(command) = Command::parse(text, "name") {
+                    let _ = match command {
+                        Command::Help => cx.answer(Command::descriptions()).send().await,
+                        Command::NewMeal(meal_name) => {
+                            let meal = Meal::new(meal_name).save(&state);
+                            cx.answer(format!(
+                                "MEAL: [{}]\nRATING: [{}]\n\nHow did it taste!",
+                                meal.name,
+                                meal.rating.unwrap_or(0)
+                            ))
+                            .reply_markup(
+                                Keyboard::new()
+                                    .buttons(vec![rate_meal_button_row(0, meal.id)])
+                                    .save(&state)
+                                    .inline_keyboard(),
+                            )
+                            .send()
+                            .await
+                        }
+                        Command::Plan(days) => cx.answer_str(format!("Plan {} days:", days)).await,
+                    };
                 }
-                Command::Plan(days) => cx.answer_str(format!("Plan {} days:", days)).await,
-            };
+            }
         })
         .await;
 }
@@ -168,74 +221,138 @@ async fn handle_message(state: Arc<RwLock<State>>, rx: DispatcherHandlerRx<Messa
 async fn handle_callback(state: Arc<RwLock<State>>, rx: DispatcherHandlerRx<CallbackQuery>) {
     rx.map(|cx| (cx, state.clone()))
         .for_each_concurrent(None, |(cx, state)| async move {
-            let data = cx.update.data.unwrap();
-            let buttons = state.read().buttons.clone();
+            let keyboards = state.read().keyboards.clone();
             let meals = state.read().meals.clone();
-            let msg = cx.update.message.unwrap();
-            let chat = ChatOrInlineMessage::Chat {
-                chat_id: ChatId::Id(msg.chat_id()),
-                message_id: msg.id,
-            };
-            let button_opt = buttons.get(&data.parse::<usize>().unwrap()).clone();
-            if let Some(button) = button_opt {
-                match button.kind {
-                    ButtonKind::SaveMeal { meal_id } => {
-                        let meal_opt = meals.get(&meal_id).clone();
-                        if let Some(meal) = meal_opt {
-                            let key: String = DBKeys::Meals.into();
-                            state.write().sh.db.ladd(&key, &meal);
-                            state.write().meals.remove(&meal_id);
-                            let _ = cx
-                                .bot
-                                .edit_message_text(
-                                    chat.clone(),
-                                    format!(
-                                        "MEAL: [{}]\nRATING: [{}]\n\nSaved!",
-                                        meal.name, meal.rating
-                                    ),
-                                )
-                                .send()
-                                .await;
-                        } else {
-                            let _ = cx
-                                .bot
-                                .edit_message_text(chat, "Failed to save, meal not found!")
-                                .send()
-                                .await;
-                        }
-                    }
-                    ButtonKind::RateMeal { meal_id, rating } => {
-                        {
-                            let mut state_m = state.write();
-                            state_m.meals.get_mut(&meal_id).unwrap().rating = rating
-                        }
+            if let Some(msg) = cx.update.message {
+                let chat = ChatOrInlineMessage::Chat {
+                    chat_id: ChatId::Id(msg.chat_id()),
+                    message_id: msg.id,
+                };
+                if let Some(data) = cx.update.data {
+                    let ids: Vec<_> = data.split(".").collect();
+                    if let Some(keyboard_id_str) = ids.get(0) {
+                        if let Some(button_id_str) = ids.get(1) {
+                            if let Ok(keyboard_id) = keyboard_id_str.parse::<usize>() {
+                                if let Ok(button_id) = button_id_str.parse::<usize>() {
+                                    if let Some(keyboard) = keyboards.get(&keyboard_id) {
+                                        if let Some(button) = keyboard.get_btn(button_id) {
+                                            match button.kind {
+                                                ButtonKind::SaveMeal { meal_id } => {
+                                                    let meal_opt = meals.get(&meal_id).clone();
+                                                    if let Some(meal) = meal_opt {
+                                                        let key: String = DBKeys::Meals.into();
+                                                        state.write().sh.db.ladd(&key, &meal);
+                                                        state.write().meals.remove(&meal_id);
 
-                        let _ = cx
-                            .bot
-                            .edit_message_text(
-                                chat.clone(),
-                                format!(
-                                    "MEAL: [{}]\nRATING: [{}]\n\nChange Rating or Save your Meal!",
-                                    state.read().meals.get(&meal_id).unwrap().name,
-                                    rating
-                                ),
-                            )
-                            .reply_markup(
-                                InlineKeyboardMarkup::default()
-                                    .append_row(rate_meal_buttons(
-                                        &state, MAX_RATING, rating, meal_id,
-                                    ))
-                                    .append_row(save_meal_buttons(&state, meal_id)),
-                            )
-                            .send()
-                            .await;
-                    }
-                    ButtonKind::Cancel => {
-                        let _ = cx.bot.edit_message_text(chat, "Canceled...").send().await;
+                                                        let _ = cx
+                                                            .bot
+                                                            .edit_message_text(
+                                                                chat.clone(),
+                                                                format!(
+                                                            "MEAL: [{}]\nRATING: [{}]\n\nSaved!",
+                                                            meal.name, meal.rating.unwrap_or(0)
+                                                        ),
+                                                            )
+                                                            .send()
+                                                            .await;
+                                                    } else {
+                                                        let _ = cx
+                                                            .bot
+                                                            .edit_message_text(
+                                                                chat,
+                                                                "Failed to save, meal not found!",
+                                                            )
+                                                            .send()
+                                                            .await;
+                                                    }
+                                                }
+                                                ButtonKind::CancelMeal { meal_id }=> {
+                                                    state.write().meals.remove(&meal_id);
+                                                    let _ = cx
+                                                        .bot
+                                                        .edit_message_text(chat, "Canceled...")
+                                                        .send()
+                                                        .await;
+                                                }
+                                                ButtonKind::RateMeal { meal_id, rating } => {
+                                                    {
+                                                        let mut state_m = state.write();
+                                                        state_m
+                                                            .meals
+                                                            .get_mut(&meal_id)
+                                                            .unwrap()
+                                                            .rate(rating);
+                                                    }
+                                                    let _ = cx
+                                                        .bot
+                                                        .edit_message_text(
+                                                            chat.clone(),
+                                                            format!(
+                                                                "MEAL: [{}]\nRATING: [{}]\n\nChange Rating or Save your Meal!",
+                                                                state.read().meals.get(&meal_id).unwrap().name,
+                                                                rating
+                                                            ),
+                                                        )
+                                                        .reply_markup(
+                                                            Keyboard::new()
+                                                                .buttons(vec![
+                                                                    rate_meal_button_row(
+                                                                        rating, meal_id,
+                                                                    ),
+                                                                    save_meal_button_row(meal_id),
+                                                                ])
+                                                                .save(&state)
+                                                                .inline_keyboard(),
+                                                        )
+                                                        .send()
+                                                        .await;
+                                                }
+                                            }
+                                            state.write().keyboards.remove(&keyboard_id);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+                let _ = cx.bot.answer_callback_query(cx.update.id).send().await;
             }
-            let _ = cx.bot.answer_callback_query(cx.update.id).send().await;
+            // dbg!(&state.read().meals);
+            // dbg!(&state.read().keyboards);
+        })
+        .await;
+}
+
+fn meal_article(meal: Meal) -> InlineQueryResult {
+    InlineQueryResult::Article(InlineQueryResultArticle::new(
+        meal.id.to_string(),
+        meal.name.clone(),
+        InputMessageContent::Text(InputMessageContentText::new(format!(
+            "MEAL: [{}]\nRATING: [{}]",
+            meal.name,
+            meal.rating.unwrap_or(0)
+        ))),
+    ))
+}
+
+async fn handle_inline(state: Arc<RwLock<State>>, rx: DispatcherHandlerRx<InlineQuery>) {
+    rx.map(|cx| (cx, state.clone()))
+        .for_each_concurrent(None, |(cx, state)| async move {
+            let key: String = DBKeys::Meals.into();
+            let results: Vec<_> = state
+                .read()
+                .sh
+                .db
+                .liter(&key)
+                .map(|item| meal_article(item.get_item::<Meal>().unwrap()))
+                .collect();
+            dbg!(&results);
+            let _ = cx
+                .bot
+                .answer_inline_query(cx.update.id, results)
+                .send()
+                .await;
         })
         .await;
 }
@@ -251,9 +368,11 @@ async fn run() {
     let bot = Bot::from_env();
     let state = Arc::new(RwLock::new(State::default()));
     let state_2 = state.clone();
+    let state_3 = state.clone();
     Dispatcher::new(bot)
-        .messages_handler(|rx| handle_message(state_2, rx))
-        .callback_queries_handler(|rx| handle_callback(state, rx))
+        .messages_handler(|rx| handle_message(state, rx))
+        .callback_queries_handler(|rx| handle_callback(state_2, rx))
+        .inline_queries_handler(|rx| handle_inline(state_3, rx))
         .dispatch()
         .await;
 }
