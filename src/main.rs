@@ -1,18 +1,7 @@
 use std::collections::HashMap;
-use std::convert::Infallible;
-use teloxide::{
-    dispatching::{
-        dialogue::{serializer::Bincode, RedisStorage, Storage},
-        *,
-    },
-    prelude::*,
-    types::*,
-    utils::command::BotCommand,
-};
-use teloxide_macros::{teloxide, Transition};
+use teloxide::{dispatching::*, prelude::*, types::*, utils::command::BotCommand};
 mod db;
 use db::{DBKeys, StoreHandler};
-use derive_more::From;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicUsize, Ordering};
