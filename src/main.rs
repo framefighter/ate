@@ -353,7 +353,7 @@ async fn main() {
 
 async fn run() {
     teloxide::enable_logging!();
-    log::info!("Starting simple_commands_bot...");
+    log::info!("Starting eat_tracker_bot...");
     let bot = Bot::from_env();
     let state = Arc::new(RwLock::new(State::default()));
     let state_2 = state.clone();
