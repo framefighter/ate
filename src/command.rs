@@ -176,7 +176,10 @@ impl Command {
                 cr.message(
                     cx.answer(format!("{}", meal)).reply_markup(
                         Keyboard::new()
-                            .buttons(vec![button::save_meal_button_row(meal.id)])
+                            .buttons(vec![
+                                button::save_meal_button_row(meal.id.clone()),
+                                vec![Button::new("Group Rate".into(), ButtonKind::PollRating { meal })],
+                            ])
                             .save(&state)
                             .inline_keyboard(),
                     ),

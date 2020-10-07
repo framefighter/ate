@@ -1,9 +1,9 @@
 use nanoid::nanoid;
 use teloxide::prelude::Request;
 use teloxide::requests::{
-    EditInlineMessageMedia, EditInlineMessageText, EditMessageMedia, EditMessageText,
+    EditInlineMessageMedia, EditInlineMessageText, EditMessageMedia, EditMessageText, SendPoll,
 };
-use teloxide::types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup};
+use teloxide::types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup, ReplyMarkup};
 
 use crate::db::DBKeys;
 use crate::keyboard::Keyboard;
@@ -47,6 +47,7 @@ pub enum ButtonKind {
     RateMeal { meal_id: String, rating: u8 },
     CancelMeal { meal_id: String },
     DeleteMeal { meal: Meal },
+    PollRating { meal: Meal },
 }
 
 impl ButtonKind {
@@ -55,12 +56,7 @@ impl ButtonKind {
         text: String,
         reply_markup: InlineKeyboardMarkup,
     ) -> ButtonResult {
-        let mut er = ButtonResult {
-            edit_message: None,
-            edit_photo: None,
-            edit_inline_message: None,
-            edit_inline_photo: None,
-        };
+        let mut er = ButtonResult::default();
         if let Some(msg) = &cx.update.message {
             er.message(
                 cx.bot
@@ -144,6 +140,30 @@ impl ButtonKind {
                     .save(&state)
                     .inline_keyboard(),
             ),
+            ButtonKind::PollRating { meal } => {
+                let mut result = ButtonResult::default();
+                if let Some(message) = &cx.update.message {
+                    let answers: Vec<String> = (0..MAX_RATING)
+                        .into_iter()
+                        .map(|r| "⭐".repeat(r as usize + 1))
+                        .collect();
+                    result.send_poll = Some(
+                        cx.bot
+                            .send_poll(
+                                ChatId::Id(message.chat_id()),
+                                format!("Rate the meal: {}", meal.name.to_uppercase()),
+                                answers,
+                            )
+                            .reply_markup(ReplyMarkup::InlineKeyboardMarkup(
+                                Keyboard::new()
+                                    .buttons(vec![save_meal_button_row(meal.id.clone())])
+                                    .save(&state)
+                                    .inline_keyboard(),
+                            )),
+                    );
+                }
+                result
+            }
         }
     }
     pub fn execute(&self, state: &StateLock, cx: &ContextCallback) -> ButtonResult {
@@ -156,6 +176,19 @@ pub struct ButtonResult {
     pub edit_photo: Option<EditMessageMedia>,
     pub edit_inline_message: Option<EditInlineMessageText>,
     pub edit_inline_photo: Option<EditInlineMessageMedia>,
+    pub send_poll: Option<SendPoll>,
+}
+
+impl Default for ButtonResult {
+    fn default() -> Self {
+        Self {
+            edit_message: None,
+            edit_photo: None,
+            edit_inline_message: None,
+            edit_inline_photo: None,
+            send_poll: None,
+        }
+    }
 }
 
 impl ButtonResult {
@@ -192,16 +225,10 @@ impl ButtonResult {
                 log::warn!("{}", err);
             }
         }
-    }
-}
-
-impl Default for ButtonResult {
-    fn default() -> Self {
-        Self {
-            edit_message: None,
-            edit_photo: None,
-            edit_inline_message: None,
-            edit_inline_photo: None,
+        if let Some(send_poll) = &self.send_poll {
+            if let Err(err) = send_poll.send().await {
+                log::warn!("{}", err);
+            }
         }
     }
 }
