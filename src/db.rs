@@ -27,33 +27,23 @@ impl StoreHandler {
         let loaded_db = PickleDb::load(
             "meals.db",
             PickleDbDumpPolicy::AutoDump,
-            SerializationMethod::Json,
+            SerializationMethod::Bin,
         );
-        let db = if loaded_db.is_ok() {
+        let mut db = if loaded_db.is_ok() {
             loaded_db.unwrap()
         } else {
             PickleDb::new(
                 "meals.db",
                 PickleDbDumpPolicy::AutoDump,
-                SerializationMethod::Json,
+                SerializationMethod::Bin,
             )
         };
-
+        let key: String = DBKeys::Meals.into();
+        if !db.lexists(&key) {
+            if let Err(err) = db.lcreate(&key) {
+                log::warn!("{}", err);
+            }
+        }
         StoreHandler { db }
-    }
-
-    pub fn save<T: serde::ser::Serialize>(&mut self, key: DBKeys, value: T) {
-        self.db.set(&*key.to_string(), &value).ok();
-        self.db.dump().ok();
-    }
-
-    pub fn load<T: serde::de::DeserializeOwned>(&self, key: DBKeys, default_val: T) -> T {
-        self.db.get::<T>(&*key.to_string()).unwrap_or(default_val)
-    }
-
-    pub fn clear(&mut self) {
-        self.db.get_all().iter().for_each(|k| {
-            self.db.rem(k).ok();
-        })
     }
 }

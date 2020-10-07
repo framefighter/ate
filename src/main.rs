@@ -1,85 +1,204 @@
-use std::convert::Infallible;
-use teloxide::{
-    dispatching::{
-        dialogue::{serializer::Bincode, RedisStorage, Storage},
-        *,
-    },
-    prelude::*,
-    types::*,
-    utils::command::BotCommand,
-};
-use teloxide_macros::{teloxide, Transition};
+use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
+use parking_lot::RwLock;
+use std::sync::Arc;
+use teloxide::types::File as TgFile;
+use teloxide::{dispatching::*, prelude::*, types::*, utils::command::BotCommand, BotBuilder};
+use tokio::fs::File;
+
 mod db;
-use db::StoreHandler;
-use derive_more::From;
-use serde::{Deserialize, Serialize};
+use db::DBKeys;
+mod button;
+mod meal;
+use meal::Meal;
+mod command;
+use command::Command;
+mod keyboard;
+use keyboard::Keyboard;
+mod state;
+use state::State;
 
-#[derive(BotCommand)]
-#[command(rename = "lowercase", description = "These commands are supported:")]
-enum Command {
-    #[command(description = "List all commands.")]
-    Help,
-    #[command(description = "Save a meal.")]
-    Meal(String),
-    #[command(description = "handle a username and an age.", parse_with = "split")]
-    Plan(u8),
+pub const MAX_RATING: u8 = 5;
+pub const BOT_NAME: &'static str = "eat_tracker_bot";
+
+pub type StateLock = Arc<RwLock<State>>;
+pub type ContextCallback = UpdateWithCx<CallbackQuery>;
+pub type ContextMessage = UpdateWithCx<Message>;
+
+async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
+    rx.map(|cx| (cx, state.clone()))
+        .for_each_concurrent(None, |(cx, state)| async move {
+            if let Some(text) = cx.update.text() {
+                let parsed = Command::parse(text, BOT_NAME);
+                if let Ok(command) = parsed {
+                    command.execute(&state, &cx).send().await;
+                } else if let Err(err) = parsed {
+                    if let Err(err) = cx.answer(err.to_string()).send().await {
+                        log::warn!("{}", err);
+                    }
+                }
+            } else if let Some(photos) = cx.update.photo() {
+                if let Some(last_photo) = photos.last() {
+                    if let Some(caption) = cx.update.caption() {
+                        let parsed = Command::parse(caption, BOT_NAME);
+                        if let Ok(command) = parsed {
+                            match &command {
+                                Command::New { .. } => {
+                                    if let Ok(TgFile {
+                                        file_path,
+                                        file_unique_id,
+                                        file_size,
+                                        ..
+                                    }) = cx.bot.get_file(last_photo.file_id.clone()).send().await
+                                    {
+                                        let file_r = File::create(format!(
+                                            "./images/{}.png",
+                                            file_unique_id
+                                        ))
+                                        .await;
+                                        if let Ok(mut file) = file_r {
+                                            if let Err(err) =
+                                                cx.bot.download_file(&file_path, &mut file).await
+                                            {
+                                                log::warn!("{}", err);
+                                            } else {
+                                                log::info!(
+                                                    "[{}] Downloading File: {} | Size: {} ...",
+                                                    BOT_NAME,
+                                                    file_path,
+                                                    file_size
+                                                );
+                                            }
+                                            command.execute(&state, &cx).send().await;
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        } else if let Err(err) = parsed {
+                            if let Err(err) = cx.answer(err.to_string()).send().await {
+                                log::warn!("{}", err);
+                            }
+                        }
+                    }
+                }
+            }
+        })
+        .await;
 }
 
-fn save_meal_keyboard(data: String) -> InlineKeyboardMarkup {
-    let save_button = InlineKeyboardButton::callback("Save".to_uppercase(), data.to_lowercase());
-    let cancel_button =
-        InlineKeyboardButton::callback("Cancel".to_uppercase(), data.to_lowercase());
-    InlineKeyboardMarkup::default().append_row(vec![save_button, cancel_button])
+async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery>) {
+    rx.map(|cx| (cx, state.clone()))
+        .for_each_concurrent(None, |(cx, state)| async move {
+            let keyboards = state.read().keyboards.clone();
+            if let Some(data) = cx.update.data.clone() {
+                let ids: Vec<_> = data.split(".").collect();
+                if let Some(keyboard_id) = ids.get(0) {
+                    if let Some(button_id) = ids.get(1) {
+                        if let Some(keyboard) = keyboards.get(*keyboard_id) {
+                            if let Some(button) = keyboard.get_btn(button_id.to_string()) {
+                                button.kind.execute(&state, &cx).send().await;
+                                state.write().keyboards.remove(*keyboard_id);
+                            }
+                        }
+                    }
+                }
+            }
+            if let Err(err) = cx.bot.answer_callback_query(cx.update.id).send().await {
+                log::warn!("{}", err);
+            }
+        })
+        .await;
 }
 
-async fn handle_message(rx: DispatcherHandlerRx<Message>) {
-    rx.for_each_concurrent(None, |cx| async move {
-        let text = cx.update.text().unwrap();
-        let command = Command::parse(text, "name").unwrap();
-        let _ = match command {
-            Command::Help => cx.answer(Command::descriptions()).send().await,
-            Command::Meal(meal) => {
-                cx.answer(format!("Save meal {}?", meal))
-                    .reply_markup(save_meal_keyboard(text.to_string()))
-                    .send()
-                    .await
-            }
-            Command::Plan(days) => cx.answer_str(format!("Plan {} days:", days)).await,
-        };
-    })
-    .await;
+fn meal_article(meal: Meal, keyboard: Keyboard) -> InlineQueryResult {
+    InlineQueryResult::Article(
+        InlineQueryResultArticle::new(
+            meal.id.to_string(),
+            meal.name.clone(),
+            InputMessageContent::Text(InputMessageContentText::new(format!("{}", meal))),
+        )
+        .description(format!("{}", meal))
+        .reply_markup(keyboard.inline_keyboard()),
+    )
 }
 
-async fn handle_callback(rx: DispatcherHandlerRx<CallbackQuery>) {
-    rx.for_each_concurrent(None, |cx| async move {
-        let data = cx.update.data.unwrap();
-        let command = Command::parse(&data, "name").unwrap();
-        match command {
-            Command::Meal(meal) => {
-                let _ = cx
-                    .bot
-                    .send_message(
-                        cx.update.message.unwrap().chat.id,
-                        &format!("data: {}\n meal: {}", data, meal),
-                    )
-                    .send()
-                    .await;
+fn meal_photo(meal: Meal, keyboard: Keyboard) -> InlineQueryResult {
+    if let Some(photo) = meal.photos.get(0) {
+        InlineQueryResult::CachedPhoto(
+            InlineQueryResultCachedPhoto::new(meal.id.to_string(), photo.file_id.clone())
+                .caption(format!("{}", meal))
+                .title(meal.name)
+                .reply_markup(keyboard.inline_keyboard()),
+        )
+    } else {
+        meal_article(meal, keyboard)
+    }
+}
+
+async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
+    rx.map(|cx| (cx, state.clone()))
+        .for_each_concurrent(None, |(cx, state)| async move {
+            let query = cx.update.query;
+            let mut results: Vec<InlineQueryResult> = vec![];
+            if let Ok(command) = Command::parse(&query, BOT_NAME) {
+                match command {
+                    Command::New {
+                        meal_name,
+                        rating,
+                        tags,
+                        url,
+                    } => {
+                        let meal = Meal::new(meal_name)
+                            .rate(rating)
+                            .tag(tags)
+                            .url(url)
+                            .save(&state);
+                        results.push(meal_article(
+                            meal.clone(),
+                            Keyboard::new()
+                                .buttons(vec![button::save_meal_button_row(meal.id)])
+                                .save(&state),
+                        ));
+                    }
+                    _ => {}
+                }
+            } else {
+                let key: String = DBKeys::Meals.into();
+                let meals_db: Vec<Option<Meal>> = state
+                    .read()
+                    .sh
+                    .db
+                    .liter(&key)
+                    .map(|item| item.get_item::<Meal>())
+                    .collect();
+                meals_db.iter().for_each(|item| {
+                    let matcher = SkimMatcherV2::default();
+                    if let Some(meal) = item {
+                        let keyboard = Keyboard::new()
+                            .buttons(vec![button::delete_meal_button_row(meal.clone())])
+                            .save(&state);
+                        if matcher.fuzzy_match(&meal.name, &query).is_some() || query.len() == 0 {
+                            if meal.photos.len() > 0 {
+                                results.push(meal_photo(meal.clone(), keyboard));
+                            } else {
+                                results.push(meal_article(meal.clone(), keyboard));
+                            }
+                        }
+                    }
+                });
             }
-            Command::Plan(days) => {
-                let _ = cx
-                    .bot
-                    .send_message(
-                        cx.update.message.unwrap().chat.id,
-                        &format!("data: {}\n days: {}", data, days),
-                    )
-                    .send()
-                    .await;
+            if let Err(err) = cx
+                .bot
+                .answer_inline_query(cx.update.id, results)
+                .cache_time(1)
+                .send()
+                .await
+            {
+                log::warn!("{}", err);
             }
-            Command::Help => {}
-        }
-        let _ = cx.bot.answer_callback_query(cx.update.id).send().await;
-    })
-    .await;
+        })
+        .await;
 }
 
 #[tokio::main]
@@ -89,11 +208,15 @@ async fn main() {
 
 async fn run() {
     teloxide::enable_logging!();
-    log::info!("Starting simple_commands_bot...");
-    let bot = Bot::from_env();
+    log::info!("[{}] Starting...", BOT_NAME);
+    let bot = BotBuilder::new().build();
+    let state = Arc::new(RwLock::new(State::default()));
+    let state_2 = state.clone();
+    let state_3 = state.clone();
     Dispatcher::new(bot)
-        .callback_queries_handler(handle_callback)
-        .messages_handler(handle_message)
+        .messages_handler(|rx| handle_message(state, rx))
+        .callback_queries_handler(|rx| handle_callback(state_2, rx))
+        .inline_queries_handler(|rx| handle_inline(state_3, rx))
         .dispatch()
         .await;
 }
