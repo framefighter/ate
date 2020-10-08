@@ -10,6 +10,8 @@ save, create, plan, and admire your meals with telegram.
 - [X] get meal `/get <name>`
 - [X] list meals `/list`
 - [X] plan meals `/plan <number>` (uses rating as weight)
+- [ ] make db chat/group exclusive
+- [ ] whitelist users
 - [ ] handle multiple meals with same name
 - [ ] edit entries after creation
 - [ ] support multiple pictures per meal
