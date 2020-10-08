@@ -2,14 +2,17 @@ use nanoid::nanoid;
 use teloxide::prelude::Request;
 use teloxide::requests::{
     EditInlineMessageMedia, EditInlineMessageText, EditMessageMedia, EditMessageText, SendPoll,
+    StopPoll,
 };
 use teloxide::types::{
-    ChatId, InlineKeyboardButton, InlineKeyboardMarkup, Poll, PollType, ReplyMarkup,
+    Chat, ChatId, InlineKeyboardButton, InlineKeyboardMarkup, MediaKind, MediaPoll, Message,
+    MessageCommon, MessageKind, PollType, ReplyMarkup,
 };
 
 use crate::db::DBKeys;
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
+use crate::poll::Poll;
 use crate::{ContextCallback, StateLock, MAX_RATING};
 
 #[derive(Debug, Clone)]
@@ -154,18 +157,14 @@ impl ButtonKind {
                         .into_iter()
                         .map(|r| "⭐".repeat(r as usize + 1))
                         .collect();
-                    result.send_poll = Some(
+                    result.send_poll = Some((
+                        meal.clone(),
                         cx.bot
                             .send_poll(
                                 ChatId::Id(message.chat_id()),
-                                format!(
-                                    "{}|\nRate the meal: {}",
-                                    meal.id,
-                                    meal.name.to_uppercase()
-                                ),
+                                format!("Rate the meal: {}", meal.name.to_uppercase()),
                                 answers,
                             )
-                            .is_anonymous(false)
                             .reply_to_message_id(message.id)
                             .reply_markup(ReplyMarkup::InlineKeyboardMarkup(
                                 Keyboard::new()
@@ -173,22 +172,35 @@ impl ButtonKind {
                                     .save(&state)
                                     .inline_keyboard(),
                             )),
-                    );
+                    ));
                 }
-                dbg!(result.send_poll.clone());
                 result
             }
             ButtonKind::SavePollRating { meal_id } => {
-                // TODO implement feedback 
-                let meals = state.read().meals.clone();
-                if let Some(meal) = meals.get(meal_id) {
-                    state.write().sh.db.ladd(&DBKeys::Meals.to_string(), &meal);
+                let mut result = ButtonResult::default();
+                if let Some((_, poll)) = state
+                    .read()
+                    .polls
+                    .iter()
+                    .find(|(_, p)| &p.meal_id == meal_id)
+                {
+                    result.stop_poll =
+                        Some(cx.bot.stop_poll(poll.chat_id.clone(), poll.message_id));
                 }
-                ButtonResult::default()
+                result
             }
-            ButtonKind::CancelPollRating { .. } => {
-                // TODO implement cancel rating
-                ButtonResult::default()
+            ButtonKind::CancelPollRating { meal_id } => {
+                let mut result = ButtonResult::default();
+                if let Some((_, poll)) = state
+                    .read()
+                    .polls
+                    .iter()
+                    .find(|(_, p)| &p.meal_id == meal_id)
+                {
+                    result.stop_poll =
+                        Some(cx.bot.stop_poll(poll.chat_id.clone(), poll.message_id));
+                }
+                result
             }
         }
     }
@@ -202,7 +214,8 @@ pub struct ButtonResult {
     pub edit_photo: Option<EditMessageMedia>,
     pub edit_inline_message: Option<EditInlineMessageText>,
     pub edit_inline_photo: Option<EditInlineMessageMedia>,
-    pub send_poll: Option<SendPoll>,
+    pub send_poll: Option<(Meal, SendPoll)>,
+    pub stop_poll: Option<StopPoll>,
 }
 
 impl Default for ButtonResult {
@@ -213,6 +226,7 @@ impl Default for ButtonResult {
             edit_inline_message: None,
             edit_inline_photo: None,
             send_poll: None,
+            stop_poll: None,
         }
     }
 }
@@ -230,7 +244,7 @@ impl ButtonResult {
     pub fn inline_photo(&mut self, edit_inline_photo: EditInlineMessageMedia) {
         self.edit_inline_photo = Some(edit_inline_photo);
     }
-    pub async fn send(&self) {
+    pub async fn send(&self, state: &StateLock) {
         if let Some(edit_message) = &self.edit_message {
             if let Err(err) = edit_message.send().await {
                 log::warn!("{}", err);
@@ -252,7 +266,35 @@ impl ButtonResult {
             }
         }
         if let Some(send_poll) = &self.send_poll {
-            if let Err(err) = send_poll.send().await {
+            let result = send_poll.1.send().await;
+            let meal = send_poll.0.clone();
+            if let Ok(message) = result {
+                match message {
+                    Message {
+                        kind:
+                            MessageKind::Common(MessageCommon {
+                                media_kind: MediaKind::Poll(MediaPoll { poll, .. }),
+                                ..
+                            }),
+                        id: message_id,
+                        chat:
+                            Chat {
+                                id: chat_id_raw, ..
+                            },
+                        ..
+                    } => {
+                        let poll_id = poll.id;
+                        let chat_id = ChatId::Id(chat_id_raw);
+                        Poll::new(poll_id, chat_id, message_id, meal.id).save(&state);
+                    }
+                    _ => {}
+                }
+            } else if let Err(err) = result {
+                log::warn!("{}", err);
+            }
+        }
+        if let Some(stop_poll) = &self.stop_poll {
+            if let Err(err) = stop_poll.send().await {
                 log::warn!("{}", err);
             }
         }

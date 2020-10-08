@@ -1,9 +1,9 @@
-use teloxide::types::Poll;
 use std::collections::HashMap;
 
 use crate::db::StoreHandler;
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
+use crate::poll::Poll;
 
 pub struct State {
     pub sh: StoreHandler,
@@ -22,3 +22,4 @@ impl Default for State {
         }
     }
 }
+

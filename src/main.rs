@@ -17,6 +17,7 @@ mod keyboard;
 use keyboard::Keyboard;
 mod state;
 use state::State;
+mod poll;
 
 pub const MAX_RATING: u8 = 5;
 pub const BOT_NAME: &'static str = "eat_tracker_bot";
@@ -99,7 +100,7 @@ async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery
                     if let Some(button_id) = ids.get(1) {
                         if let Some(keyboard) = keyboards.get(*keyboard_id) {
                             if let Some(button) = keyboard.get_btn(button_id.to_string()) {
-                                button.kind.execute(&state, &cx).send().await;
+                                button.kind.execute(&state, &cx).send(&state).await;
                                 state.write().keyboards.remove(*keyboard_id);
                             }
                         }
@@ -205,10 +206,20 @@ async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
 async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
     rx.map(|cx| (cx, state.clone()))
         .for_each_concurrent(None, |(cx, state)| async move {
-            let total_votes = cx.update.total_voter_count;
-            if total_votes > 0 {
-                let v: Vec<_> = cx.update.question.split("|").collect();
-                if let Some(meal_id) = v.get(0) {
+            let poll_opt = {
+                let s = state.read();
+                let opt = s.polls.iter().find(|(_, p)| p.poll_id == cx.update.id);
+                if let Some((_, poll)) = opt {
+                    Some(poll.clone())
+                } else {
+                    None
+                }
+            };
+            if let Some(poll) = poll_opt {
+                let meal_id = poll.meal_id.clone();
+                let total_votes = cx.update.total_voter_count;
+                if total_votes > 0 && cx.update.is_closed {
+                    log::info!("Poll closed: {:?}", poll);
                     let votes: Vec<(i32, i32)> = cx
                         .update
                         .options
@@ -217,19 +228,23 @@ async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
                         .map(|(i, po)| ((i + 1) as i32, po.voter_count))
                         .collect();
                     let avg = votes.iter().fold(0, |sum, vote| sum + vote.0 * vote.1) / total_votes;
-                    if let Some(meal) = state.write().meals.get_mut(meal_id.clone()) {
+                    let meal_opt = {
+                        let s = state.read();
+                        let opt = s.meals.iter().find(|(_, p)| p.id == meal_id);
+                        if let Some((_, meal)) = opt {
+                            Some(meal.clone())
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(mut meal) = meal_opt {
                         meal.rate(Some(((avg as u8) + meal.rating.unwrap_or(avg as u8)) / 2));
+                        state.write().meals.insert(meal.id.clone(), meal.clone());
+                        state.write().sh.db.ladd(&DBKeys::Meals.to_string(), &meal);
+                        log::info!("Saving meal: {}", meal);
                     }
                 }
             }
-        })
-        .await;
-}
-
-async fn handle_poll_answers(state: StateLock, rx: DispatcherHandlerRx<PollAnswer>) {
-    rx.map(|cx| (cx, state.clone()))
-        .for_each_concurrent(None, |(cx, state)| async move {
-            dbg!(cx.update);
         })
         .await;
 }
@@ -241,19 +256,17 @@ async fn main() {
 
 async fn run() {
     teloxide::enable_logging!();
-    log::info!("[{}] Starting...", BOT_NAME);
+    log::info!("Starting...");
     let bot = BotBuilder::new().build();
     let state = Arc::new(RwLock::new(State::default()));
     let state_2 = state.clone();
     let state_3 = state.clone();
     let state_4 = state.clone();
-    let state_5 = state.clone();
     Dispatcher::new(bot)
         .messages_handler(|rx| handle_message(state, rx))
         .callback_queries_handler(|rx| handle_callback(state_2, rx))
         .inline_queries_handler(|rx| handle_inline(state_3, rx))
         .polls_handler(|rx| handle_polls(state_4, rx))
-        .poll_answers_handler(|rx| handle_poll_answers(state_5, rx))
         .dispatch()
         .await;
 }
