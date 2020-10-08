@@ -13,4 +13,4 @@ save, create, plan, and admire your meals with telegram.
 - [ ] support multiple pictures per meal
 - [ ] expand step by step creation
 - [ ] more sophisticated planning
-- [ ] group polling for meal rating
+- [ ] group polling for meal rating (on branch v0.3.0)
