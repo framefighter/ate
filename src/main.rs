@@ -226,6 +226,14 @@ async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
         .await;
 }
 
+async fn handle_poll_answers(state: StateLock, rx: DispatcherHandlerRx<PollAnswer>) {
+    rx.map(|cx| (cx, state.clone()))
+        .for_each_concurrent(None, |(cx, state)| async move {
+            dbg!(cx.update);
+        })
+        .await;
+}
+
 #[tokio::main]
 async fn main() {
     run().await;
@@ -239,11 +247,13 @@ async fn run() {
     let state_2 = state.clone();
     let state_3 = state.clone();
     let state_4 = state.clone();
+    let state_5 = state.clone();
     Dispatcher::new(bot)
         .messages_handler(|rx| handle_message(state, rx))
         .callback_queries_handler(|rx| handle_callback(state_2, rx))
         .inline_queries_handler(|rx| handle_inline(state_3, rx))
         .polls_handler(|rx| handle_polls(state_4, rx))
+        .poll_answers_handler(|rx| handle_poll_answers(state_5, rx))
         .dispatch()
         .await;
 }

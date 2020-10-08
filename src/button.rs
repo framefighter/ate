@@ -165,6 +165,7 @@ impl ButtonKind {
                                 ),
                                 answers,
                             )
+                            .is_anonymous(false)
                             .reply_to_message_id(message.id)
                             .reply_markup(ReplyMarkup::InlineKeyboardMarkup(
                                 Keyboard::new()
@@ -174,10 +175,11 @@ impl ButtonKind {
                             )),
                     );
                 }
+                dbg!(result.send_poll.clone());
                 result
             }
             ButtonKind::SavePollRating { meal_id } => {
-                // TODO implement save rating
+                // TODO implement feedback 
                 let meals = state.read().meals.clone();
                 if let Some(meal) = meals.get(meal_id) {
                     state.write().sh.db.ladd(&DBKeys::Meals.to_string(), &meal);
