@@ -9,6 +9,7 @@ use tokio::fs::File;
 mod db;
 use db::DBKeys;
 mod button;
+use button::ButtonKind;
 mod meal;
 use meal::Meal;
 mod command;
@@ -103,6 +104,15 @@ async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery
                                 button.kind.execute(&state, &cx).send(&state).await;
                                 state.write().keyboards.remove(*keyboard_id);
                             }
+                        } else if let Err(err) = cx
+                            .bot
+                            .answer_callback_query(cx.update.id.clone())
+                            .text("Outdated buttons!\nPlease rerun command.")
+                            .show_alert(true)
+                            .send()
+                            .await
+                        {
+                            log::warn!("{}", err);
                         }
                     }
                 }

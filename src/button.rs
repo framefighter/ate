@@ -58,7 +58,7 @@ pub enum ButtonKind {
 }
 
 impl ButtonKind {
-    fn edit_callback_text(
+    pub fn edit_callback_text(
         cx: &ContextCallback,
         text: String,
         reply_markup: InlineKeyboardMarkup,
