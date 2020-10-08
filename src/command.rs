@@ -23,7 +23,7 @@ fn create_command(
         },
         if let Some(rating_str) = args.get(1) {
             if let Ok(rating) = rating_str.trim().parse::<u8>() {
-                Some(rating.min(1).max(MAX_RATING))
+                Some(rating.max(1).min(MAX_RATING))
             } else {
                 return Err(ParseError::Custom(
                     "Rating (2nd argument) has to be a number!".into(),
@@ -211,6 +211,7 @@ impl Command {
                 tags,
                 url,
             } => {
+                dbg!(rating);
                 let meal = Meal::new(meal_name.clone())
                     .rate(*rating)
                     .tag(tags.clone())

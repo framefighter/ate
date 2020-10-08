@@ -6,7 +6,7 @@ use teloxide::requests::{
 };
 use teloxide::types::{
     Chat, ChatId, InlineKeyboardButton, InlineKeyboardMarkup, MediaKind, MediaPoll, Message,
-    MessageCommon, MessageKind, PollType, ReplyMarkup,
+    MessageCommon, MessageKind, ReplyMarkup,
 };
 
 use crate::db::DBKeys;

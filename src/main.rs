@@ -9,7 +9,6 @@ use tokio::fs::File;
 mod db;
 use db::DBKeys;
 mod button;
-use button::ButtonKind;
 mod meal;
 use meal::Meal;
 mod command;
