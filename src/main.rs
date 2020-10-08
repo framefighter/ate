@@ -218,7 +218,7 @@ async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
             if let Some(poll) = poll_opt {
                 let meal_id = poll.meal_id.clone();
                 let total_votes = cx.update.total_voter_count;
-                if total_votes > 0 && cx.update.is_closed {
+                if total_votes > 0 && cx.update.is_closed && !poll.is_canceled {
                     log::info!("Poll closed: {:?}", poll);
                     let votes: Vec<(i32, i32)> = cx
                         .update

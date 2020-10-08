@@ -11,6 +11,7 @@ pub struct Poll {
     pub chat_id: ChatId,
     pub message_id: i32,
     pub meal_id: String,
+    pub is_canceled: bool,
 }
 
 impl Poll {
@@ -21,6 +22,7 @@ impl Poll {
             chat_id,
             message_id,
             meal_id,
+            is_canceled: false,
         }
     }
 

@@ -191,12 +191,13 @@ impl ButtonKind {
             }
             ButtonKind::CancelPollRating { meal_id } => {
                 let mut result = ButtonResult::default();
-                if let Some((_, poll)) = state
-                    .read()
+                if let Some((_, mut poll)) = state
+                    .write()
                     .polls
-                    .iter()
+                    .iter_mut()
                     .find(|(_, p)| &p.meal_id == meal_id)
                 {
+                    poll.is_canceled = true;
                     result.stop_poll =
                         Some(cx.bot.stop_poll(poll.chat_id.clone(), poll.message_id));
                 }

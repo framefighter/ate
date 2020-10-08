@@ -67,6 +67,8 @@ pub enum Command {
     Plan(u8),
     #[command(description = "Get a saved meal's info.")]
     Get(String),
+    #[command(description = "Remove a meal by name.")]
+    Remove(String),
     #[command(description = "Get a list of all meals.")]
     List,
 }
@@ -95,14 +97,19 @@ impl Command {
             }
             Command::Get(meal_name) => {
                 let mut meal_q: Option<Meal> = None;
-                state.read().sh.db.liter(&DBKeys::Meals.to_string()).for_each(|item| {
-                    let meal_opt = item.get_item::<Meal>();
-                    if let Some(meal_f) = meal_opt {
-                        if &meal_f.name == meal_name {
-                            meal_q = Some(meal_f);
+                state
+                    .read()
+                    .sh
+                    .db
+                    .liter(&DBKeys::Meals.to_string())
+                    .for_each(|item| {
+                        let meal_opt = item.get_item::<Meal>();
+                        if let Some(meal_f) = meal_opt {
+                            if &meal_f.name == meal_name {
+                                meal_q = Some(meal_f);
+                            }
                         }
-                    }
-                });
+                    });
                 if let Some(meal) = meal_q {
                     if meal.photos.len() > 0 {
                         cr.photo(
@@ -112,6 +119,44 @@ impl Command {
                     } else {
                         cr.message(cx.answer(format!("{}", meal)));
                     }
+                }
+            }
+            Command::Remove(meal_name) => {
+                let mut meal_q: Option<Meal> = None;
+                state
+                    .read()
+                    .sh
+                    .db
+                    .liter(&DBKeys::Meals.to_string())
+                    .for_each(|item| {
+                        let meal_opt = item.get_item::<Meal>();
+                        if let Some(meal_f) = meal_opt {
+                            if &meal_f.name == meal_name {
+                                meal_q = Some(meal_f);
+                            }
+                        }
+                    });
+                if let Some(meal) = meal_q {
+                    if let Err(err) = state
+                        .write()
+                        .sh
+                        .db
+                        .lrem_value(&DBKeys::Meals.to_string(), &meal)
+                    {
+                        log::warn!("{}", err);
+                    }
+                    if meal.photos.len() > 0 {
+                        cr.photo(
+                            cx.answer_photo(InputFile::FileId(meal.photos[0].file_id.clone()))
+                                .caption(format!("{}\n\nRemoved!", meal)),
+                        );
+                    } else {
+                        cr.message(cx.answer(format!("{}\n\nRemoved!", meal)));
+                    }
+                } else {
+                    cr.message(
+                        cx.answer(format!("{}\n\nMeal not found!", meal_name.to_uppercase())),
+                    );
                 }
             }
             Command::Plan(days) => {
@@ -176,7 +221,10 @@ impl Command {
                         Keyboard::new()
                             .buttons(vec![
                                 button::save_meal_button_row(meal.id.clone()),
-                                vec![Button::new("Group Rate".into(), ButtonKind::PollRating { meal })],
+                                vec![Button::new(
+                                    "Rate with Poll".into(),
+                                    ButtonKind::PollRating { meal },
+                                )],
                             ])
                             .save(&state)
                             .inline_keyboard(),
