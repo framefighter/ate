@@ -3,7 +3,9 @@ use teloxide::prelude::Request;
 use teloxide::requests::{
     EditInlineMessageMedia, EditInlineMessageText, EditMessageMedia, EditMessageText, SendPoll,
 };
-use teloxide::types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup, ReplyMarkup};
+use teloxide::types::{
+    ChatId, InlineKeyboardButton, InlineKeyboardMarkup, Poll, PollType, ReplyMarkup,
+};
 
 use crate::db::DBKeys;
 use crate::keyboard::Keyboard;
@@ -48,6 +50,8 @@ pub enum ButtonKind {
     CancelMeal { meal_id: String },
     DeleteMeal { meal: Meal },
     PollRating { meal: Meal },
+    SavePollRating { meal_id: String },
+    CancelPollRating { meal_id: String },
 }
 
 impl ButtonKind {
@@ -79,8 +83,7 @@ impl ButtonKind {
                 let meals = state.read().meals.clone();
                 let meal_opt = meals.get(meal_id).clone();
                 if let Some(meal) = meal_opt {
-                    let key: String = DBKeys::Meals.into();
-                    state.write().sh.db.ladd(&key, &meal);
+                    state.write().sh.db.ladd(&DBKeys::Meals.to_string(), &meal);
                     state.write().meals.remove(meal_id);
                     let text = format!("{}\n\nSaved!", meal);
                     Self::edit_callback_text(&cx, text, Keyboard::new().inline_keyboard())
@@ -120,8 +123,12 @@ impl ButtonKind {
                 )
             }
             ButtonKind::DeleteMeal { meal } => {
-                let key: String = DBKeys::Meals.into();
-                let text = if let Ok(b) = state.write().sh.db.lrem_value(&key, &meal) {
+                let text = if let Ok(b) = state
+                    .write()
+                    .sh
+                    .db
+                    .lrem_value(&DBKeys::Meals.to_string(), &meal)
+                {
                     if b {
                         format!("{}\n\nRemoved!", meal,)
                     } else {
@@ -151,18 +158,35 @@ impl ButtonKind {
                         cx.bot
                             .send_poll(
                                 ChatId::Id(message.chat_id()),
-                                format!("Rate the meal: {}", meal.name.to_uppercase()),
+                                format!(
+                                    "{}|\nRate the meal: {}",
+                                    meal.id,
+                                    meal.name.to_uppercase()
+                                ),
                                 answers,
                             )
+                            .reply_to_message_id(message.id)
                             .reply_markup(ReplyMarkup::InlineKeyboardMarkup(
                                 Keyboard::new()
-                                    .buttons(vec![save_meal_button_row(meal.id.clone())])
+                                    .buttons(vec![save_poll_button_row(meal.clone())])
                                     .save(&state)
                                     .inline_keyboard(),
                             )),
                     );
                 }
                 result
+            }
+            ButtonKind::SavePollRating { meal_id } => {
+                // TODO implement save rating
+                let meals = state.read().meals.clone();
+                if let Some(meal) = meals.get(meal_id) {
+                    state.write().sh.db.ladd(&DBKeys::Meals.to_string(), &meal);
+                }
+                ButtonResult::default()
+            }
+            ButtonKind::CancelPollRating { .. } => {
+                // TODO implement cancel rating
+                ButtonResult::default()
             }
         }
     }
@@ -259,6 +283,22 @@ pub fn save_meal_button_row(meal_id: String) -> Vec<Button> {
         "Cancel".to_uppercase(),
         ButtonKind::CancelMeal {
             meal_id: meal_id.clone(),
+        },
+    );
+    vec![save_button, cancel_button]
+}
+
+pub fn save_poll_button_row(meal: Meal) -> Vec<Button> {
+    let save_button = Button::new(
+        "Save Meal".to_uppercase(),
+        ButtonKind::SavePollRating {
+            meal_id: meal.id.clone(),
+        },
+    );
+    let cancel_button = Button::new(
+        "Cancel".to_uppercase(),
+        ButtonKind::CancelPollRating {
+            meal_id: meal.id.clone(),
         },
     );
     vec![save_button, cancel_button]

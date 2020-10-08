@@ -38,9 +38,8 @@ impl StoreHandler {
                 SerializationMethod::Bin,
             )
         };
-        let key: String = DBKeys::Meals.into();
-        if !db.lexists(&key) {
-            if let Err(err) = db.lcreate(&key) {
+        if !db.lexists(&DBKeys::Meals.to_string()) {
+            if let Err(err) = db.lcreate(&DBKeys::Meals.to_string()) {
                 log::warn!("{}", err);
             }
         }

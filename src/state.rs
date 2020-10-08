@@ -1,3 +1,4 @@
+use teloxide::types::Poll;
 use std::collections::HashMap;
 
 use crate::db::StoreHandler;
@@ -8,6 +9,7 @@ pub struct State {
     pub sh: StoreHandler,
     pub keyboards: HashMap<String, Keyboard>,
     pub meals: HashMap<String, Meal>,
+    pub polls: HashMap<String, Poll>,
 }
 
 impl Default for State {
@@ -16,6 +18,7 @@ impl Default for State {
             sh: StoreHandler::new(),
             keyboards: HashMap::new(),
             meals: HashMap::new(),
+            polls: HashMap::new(),
         }
     }
 }

@@ -82,6 +82,8 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                         }
                     }
                 }
+            } else {
+                dbg!(cx.update);
             }
         })
         .await;
@@ -164,12 +166,11 @@ async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
                     _ => {}
                 }
             } else {
-                let key: String = DBKeys::Meals.into();
                 let meals_db: Vec<Option<Meal>> = state
                     .read()
                     .sh
                     .db
-                    .liter(&key)
+                    .liter(&DBKeys::Meals.to_string())
                     .map(|item| item.get_item::<Meal>())
                     .collect();
                 meals_db.iter().for_each(|item| {
@@ -201,6 +202,30 @@ async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
         .await;
 }
 
+async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
+    rx.map(|cx| (cx, state.clone()))
+        .for_each_concurrent(None, |(cx, state)| async move {
+            let total_votes = cx.update.total_voter_count;
+            if total_votes > 0 {
+                let v: Vec<_> = cx.update.question.split("|").collect();
+                if let Some(meal_id) = v.get(0) {
+                    let votes: Vec<(i32, i32)> = cx
+                        .update
+                        .options
+                        .iter()
+                        .enumerate()
+                        .map(|(i, po)| ((i + 1) as i32, po.voter_count))
+                        .collect();
+                    let avg = votes.iter().fold(0, |sum, vote| sum + vote.0 * vote.1) / total_votes;
+                    if let Some(meal) = state.write().meals.get_mut(meal_id.clone()) {
+                        meal.rate(Some(((avg as u8) + meal.rating.unwrap_or(avg as u8)) / 2));
+                    }
+                }
+            }
+        })
+        .await;
+}
+
 #[tokio::main]
 async fn main() {
     run().await;
@@ -213,10 +238,12 @@ async fn run() {
     let state = Arc::new(RwLock::new(State::default()));
     let state_2 = state.clone();
     let state_3 = state.clone();
+    let state_4 = state.clone();
     Dispatcher::new(bot)
         .messages_handler(|rx| handle_message(state, rx))
         .callback_queries_handler(|rx| handle_callback(state_2, rx))
         .inline_queries_handler(|rx| handle_inline(state_3, rx))
+        .polls_handler(|rx| handle_polls(state_4, rx))
         .dispatch()
         .await;
 }

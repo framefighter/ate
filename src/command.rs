@@ -94,9 +94,8 @@ impl Command {
                 );
             }
             Command::Get(meal_name) => {
-                let key: String = DBKeys::Meals.into();
                 let mut meal_q: Option<Meal> = None;
-                state.read().sh.db.liter(&key).for_each(|item| {
+                state.read().sh.db.liter(&DBKeys::Meals.to_string()).for_each(|item| {
                     let meal_opt = item.get_item::<Meal>();
                     if let Some(meal_f) = meal_opt {
                         if &meal_f.name == meal_name {
@@ -116,12 +115,11 @@ impl Command {
                 }
             }
             Command::Plan(days) => {
-                let key: String = DBKeys::Meals.into();
                 let meal_btns: Vec<Button> = state
                     .read()
                     .sh
                     .db
-                    .liter(&key)
+                    .liter(&DBKeys::Meals.to_string())
                     .filter_map(|item| {
                         let meal_opt = item.get_item::<Meal>();
                         if let Some(meal) = meal_opt {
@@ -138,7 +136,7 @@ impl Command {
                     .read()
                     .sh
                     .db
-                    .liter(&key)
+                    .liter(&DBKeys::Meals.to_string())
                     .filter_map(|item| {
                         let meal_opt = item.get_item::<Meal>();
                         if let Some(meal) = meal_opt {
@@ -186,12 +184,11 @@ impl Command {
                 );
             }
             Command::List => {
-                let key: String = DBKeys::Meals.into();
                 let meal_btns: Vec<Vec<Button>> = state
                     .read()
                     .sh
                     .db
-                    .liter(&key)
+                    .liter(&DBKeys::Meals.to_string())
                     .filter_map(|item| {
                         let meal_opt = item.get_item::<Meal>();
                         if let Some(meal) = meal_opt {
