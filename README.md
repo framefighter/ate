@@ -10,6 +10,7 @@ save, create, plan, and admire your meals with telegram.
 - [X] get meal `/get <name>`
 - [X] list meals `/list`
 - [X] plan meals `/plan <number>` (uses rating as weight)
+- [ ] edit entries after creation
 - [ ] support multiple pictures per meal
 - [ ] expand step by step creation
 - [ ] more sophisticated planning
