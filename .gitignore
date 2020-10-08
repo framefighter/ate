@@ -1,4 +1,5 @@
 /target
 /images
+*.lock
 token.txt
 *.db
