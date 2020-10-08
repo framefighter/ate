@@ -14,5 +14,5 @@ save, create, plan, and admire your meals with telegram.
 - [ ] edit entries after creation
 - [ ] support multiple pictures per meal
 - [ ] expand step by step creation
-- [ ] more sophisticated planning
+- [ ] more sophisticated planning (tag variety and frequenzy of meals)
 - [ ] group polling for meal rating (on branch v0.3.0)
