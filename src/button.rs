@@ -267,15 +267,11 @@ pub fn save_poll_button_row(meal: Meal) -> Vec<Button> {
 }
 
 pub fn delete_meal_button_row(meal: Meal) -> Vec<Button> {
-    let delete_button = Button::new(
-        "Delete Meal".to_uppercase(),
-        ButtonKind::DeleteMeal { meal: meal.clone() },
-    );
     let cancel_button = Button::new(
         "Cancel".to_uppercase(),
         ButtonKind::CancelMeal {
             meal_id: meal.id.clone(),
         },
     );
-    vec![delete_button, cancel_button]
+    vec![cancel_button]
 }
