@@ -21,6 +21,7 @@ mod state;
 use state::State;
 mod poll;
 mod request;
+use request::{RequestKind, RequestResult};
 
 pub type StateLock = Arc<RwLock<State>>;
 pub type ContextCallback = UpdateWithCx<CallbackQuery>;
@@ -226,38 +227,68 @@ async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
                     None
                 }
             };
-            if let Some(poll) = poll_opt {
-                let meal_id = poll.meal_id.clone();
-                let total_votes = cx.update.total_voter_count;
-                if total_votes > 0 && cx.update.is_closed && !poll.is_canceled {
-                    log::info!("Poll closed: {:?}", poll);
-                    let votes: Vec<(i32, i32)> = cx
-                        .update
-                        .options
-                        .iter()
-                        .enumerate()
-                        .map(|(i, po)| ((i + 1) as i32, po.voter_count))
-                        .collect();
-                    let avg = votes.iter().fold(0, |sum, vote| sum + vote.0 * vote.1) / total_votes;
-                    let meal_opt = {
-                        let s = state.read();
-                        let opt = s.meals.iter().find(|(_, p)| p.id == meal_id);
-                        if let Some((_, meal)) = opt {
-                            Some(meal.clone())
-                        } else {
-                            None
+            match poll_opt {
+                Some(poll) => {
+                    let meal_id = poll.meal_id.clone();
+                    let total_votes = cx.update.total_voter_count;
+                    if total_votes > 0 && cx.update.is_closed && !poll.is_canceled {
+                        let votes: Vec<(i32, i32)> = cx
+                            .update
+                            .options
+                            .iter()
+                            .enumerate()
+                            .map(|(i, po)| ((i + 1) as i32, po.voter_count))
+                            .collect();
+                        let avg =
+                            votes.iter().fold(0, |sum, vote| sum + vote.0 * vote.1) / total_votes;
+                        let meal_opt = {
+                            let s = state.read();
+                            let opt = s.meals.iter().find(|(_, meal)| meal.id == meal_id);
+                            if let Some((_, meal)) = opt {
+                                Some(meal.clone())
+                            } else {
+                                None
+                            }
+                        };
+                        match meal_opt {
+                            Some(mut meal) => {
+                                meal.rate(Some(
+                                    ((avg as u8) + meal.rating.unwrap_or(avg as u8)) / 2,
+                                ));
+                                state.write().meals.insert(meal.id.clone(), meal.clone());
+                                state.write().save_meal(&meal);
+                                log::info!("Poll closed: {}", meal.name);
+                                RequestResult::default()
+                                    .add(RequestKind::EditMessage(cx.bot.edit_message_text(
+                                        poll.chat_id,
+                                        poll.reply_message_id,
+                                        format!("{}\n\nSaved!", meal),
+                                    )))
+                                    .send(&state)
+                                    .await;
+                                log::info!("Saving Meal: {:?}", meal);
+                            }
+                            None => {
+                                log::info!(
+                                    "No meal with id {} found for poll: {:?}",
+                                    meal_id,
+                                    poll
+                                );
+                            }
                         }
-                    };
-                    if let Some(mut meal) = meal_opt {
-                        meal.rate(Some(((avg as u8) + meal.rating.unwrap_or(avg as u8)) / 2));
-                        state.write().meals.insert(meal.id.clone(), meal.clone());
-                        state.write().sh.db.ladd(&DBKeys::Meals.to_string(), &meal);
-                        let _ = cx.bot
-                            .send_message(poll.chat_id, format!("{}\n\nSaved!", meal))
-                            .send()
+                    } else if poll.is_canceled {
+                        RequestResult::default()
+                            .add(RequestKind::EditMessage(cx.bot.edit_message_text(
+                                poll.chat_id,
+                                poll.reply_message_id,
+                                format!("Poll Canceled!"),
+                            )))
+                            .send(&state)
                             .await;
-                        log::info!("Saving Meal: {:?}", meal);
                     }
+                }
+                None => {
+                    log::info!("No poll with id: {}", cx.update.id);
                 }
             }
         })

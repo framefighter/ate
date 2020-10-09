@@ -117,7 +117,7 @@ impl ButtonKind {
                         rate_meal_button_row(*rating, meal_id.clone()),
                         save_meal_button_row(meal_id.clone()),
                     ])
-                    .save(&state)
+                    .save(state)
                     .inline_keyboard(),
             ),
             ButtonKind::DeleteMeal { meal } => Self::edit_callback_text(
@@ -147,7 +147,7 @@ impl ButtonKind {
                 format!("{}", meal),
                 Keyboard::new()
                     .buttons(vec![delete_meal_button_row(meal.clone())])
-                    .save(&state)
+                    .save(state)
                     .inline_keyboard(),
             ),
             ButtonKind::PollRating { meal } => {
@@ -174,10 +174,11 @@ impl ButtonKind {
                             .reply_markup(ReplyMarkup::InlineKeyboardMarkup(
                                 Keyboard::new()
                                     .buttons(vec![save_poll_button_row(meal.clone())])
-                                    .save(&state)
+                                    .save(state)
                                     .inline_keyboard(),
                             )),
                         meal.clone(),
+                        message.id,
                     ));
                 }
                 result
@@ -266,15 +267,11 @@ pub fn save_poll_button_row(meal: Meal) -> Vec<Button> {
 }
 
 pub fn delete_meal_button_row(meal: Meal) -> Vec<Button> {
-    let delete_button = Button::new(
-        "Delete Meal".to_uppercase(),
-        ButtonKind::DeleteMeal { meal: meal.clone() },
-    );
     let cancel_button = Button::new(
         "Cancel".to_uppercase(),
         ButtonKind::CancelMeal {
             meal_id: meal.id.clone(),
         },
     );
-    vec![delete_button, cancel_button]
+    vec![cancel_button]
 }
