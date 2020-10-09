@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::db::StoreHandler;
+use crate::db::{StoreHandler, DBKeys};
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
 use crate::poll::Poll;
@@ -23,5 +23,9 @@ impl State {
             polls: HashMap::new(),
             config,
         }
+    }
+
+    pub fn save_meal(&mut self, meal: &Meal) {
+        self.sh.db.ladd(&DBKeys::Meals.to_string(), meal);
     }
 }

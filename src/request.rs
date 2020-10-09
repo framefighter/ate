@@ -41,27 +41,27 @@ impl RequestResult {
         for request in &self.requests {
             match request {
                 RequestKind::Message(send_request) => match send_request.send().await {
-                    Ok(res) => log::info!("Send Message: {:?}", res),
+                    Ok(_) => log::info!("Send Message"),
                     Err(err) => log::warn!("Send Message: {}", err),
                 },
                 RequestKind::Photo(send_request) => match send_request.send().await {
-                    Ok(res) => log::info!("Send Photo: {:?}", res),
+                    Ok(_) => log::info!("Send Photo"),
                     Err(err) => log::warn!("Send Photo: {}", err),
                 },
                 RequestKind::EditMessage(send_request) => match send_request.send().await {
-                    Ok(res) => log::info!("Edit Message: {:?}", res),
+                    Ok(_) => log::info!("Edit Message"),
                     Err(err) => log::warn!("Edit Message: {}", err),
                 },
                 RequestKind::EditInlineMessage(send_request) => match send_request.send().await {
-                    Ok(res) => log::info!("Edit Inline Message: {:?}", res),
+                    Ok(_) => log::info!("Edit Inline Message"),
                     Err(err) => log::warn!("Edit Inline Message: {}", err),
                 },
                 RequestKind::EditMedia(send_request) => match send_request.send().await {
-                    Ok(res) => log::info!("Edit Media: {:?}", res),
+                    Ok(_) => log::info!("Edit Media"),
                     Err(err) => log::warn!("Edit Media: {}", err),
                 },
                 RequestKind::EditInlineMedia(send_request) => match send_request.send().await {
-                    Ok(res) => log::info!("Edit Inline Media: {:?}", res),
+                    Ok(_) => log::info!("Edit Inline Media"),
                     Err(err) => log::warn!("Edit Inline Media: {}", err),
                 },
                 RequestKind::Poll(send_request, meal, reply_message_id) => {
@@ -90,7 +90,7 @@ impl RequestResult {
                                     meal.id.clone(),
                                 )
                                 .save(&state);
-                                log::info!("Send Poll: {:?}", message);
+                                log::info!("Send Poll",);
                             }
                             _ => log::warn!("No Poll found in Message: {:?}", message),
                         },
@@ -98,8 +98,8 @@ impl RequestResult {
                     }
                 }
                 RequestKind::StopPoll(send_request) => match send_request.send().await {
-                    Ok(res) => log::info!("Stop Poll: {:?}", res),
-                    Err(err) => log::warn!("Stop Poll: {}", err),
+                    Ok(_) => log::info!("Stop Poll"),
+                    Err(err) => log::warn!("Error Stop Poll: {}", err),
                 },
             }
         }
