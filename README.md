@@ -19,15 +19,17 @@ save, create, plan, and admire your meals with telegram.
 
 ### v0.3.0
 
-- [ ] group polling for meal rating
-- [ ] whitelist users
+- [X] group polling for meal rating
+- [X] whitelist users `/op <username> <password (from config)>`
+- [X] (handle multiple meals with same name)
 
 ### future releases
 
 - [ ] make db chat/group exclusive
-- [ ] handle multiple meals with same name
+- [ ] handle multiple meals with same name v2
 - [ ] edit entries after creation
 - [ ] support multiple pictures per meal
 - [ ] expand step by step creation
 - [ ] more sophisticated planning (tag variety and frequenzy of meals)
 - [ ] advanced error handling
+- [ ] database migration
