@@ -1,18 +1,9 @@
 use nanoid::nanoid;
-use teloxide::prelude::Request;
-use teloxide::requests::{
-    EditInlineMessageMedia, EditInlineMessageText, EditMessageMedia, EditMessageText, SendPoll,
-    StopPoll,
-};
-use teloxide::types::{
-    Chat, ChatId, InlineKeyboardButton, InlineKeyboardMarkup, MediaKind, MediaPoll, Message,
-    MessageCommon, MessageKind, ReplyMarkup,
-};
+use teloxide::types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup, ReplyMarkup};
 
 use crate::db::DBKeys;
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
-use crate::poll::Poll;
 use crate::request::{RequestKind, RequestResult};
 use crate::{ContextCallback, StateLock, MAX_RATING};
 

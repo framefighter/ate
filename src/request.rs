@@ -1,6 +1,5 @@
 use teloxide::requests::*;
 use teloxide::types::*;
-use teloxide::RequestError;
 
 use crate::meal::Meal;
 use crate::poll::Poll;

@@ -1,5 +1,4 @@
 use random_choice::random_choice;
-use teloxide::requests::{Request, RequestWithFile, SendMessage, SendPhoto};
 use teloxide::types::InputFile;
 use teloxide::utils::command::{BotCommand, ParseError};
 
