@@ -1,6 +1,8 @@
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
+use std::fs;
 use std::sync::Arc;
 use teloxide::types::File as TgFile;
 use teloxide::{dispatching::*, prelude::*, types::*, utils::command::BotCommand, BotBuilder};
@@ -17,9 +19,8 @@ mod keyboard;
 use keyboard::Keyboard;
 mod state;
 use state::State;
-
-pub const MAX_RATING: u8 = 5;
-pub const BOT_NAME: &'static str = "eat_tracker_bot";
+mod poll;
+mod request;
 
 pub type StateLock = Arc<RwLock<State>>;
 pub type ContextCallback = UpdateWithCx<CallbackQuery>;
@@ -28,10 +29,11 @@ pub type ContextMessage = UpdateWithCx<Message>;
 async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
     rx.map(|cx| (cx, state.clone()))
         .for_each_concurrent(None, |(cx, state)| async move {
+            let bot_name = state.read().config.name.clone();
             if let Some(text) = cx.update.text() {
-                let parsed = Command::parse(text, BOT_NAME);
+                let parsed = Command::parse(text, bot_name);
                 if let Ok(command) = parsed {
-                    command.execute(&state, &cx).send().await;
+                    command.execute(&state, &cx).send(&state).await;
                 } else if let Err(err) = parsed {
                     if let Err(err) = cx.answer(err.to_string()).send().await {
                         log::warn!("{}", err);
@@ -40,7 +42,7 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
             } else if let Some(photos) = cx.update.photo() {
                 if let Some(last_photo) = photos.last() {
                     if let Some(caption) = cx.update.caption() {
-                        let parsed = Command::parse(caption, BOT_NAME);
+                        let parsed = Command::parse(caption, bot_name);
                         if let Ok(command) = parsed {
                             match &command {
                                 Command::New { .. } => {
@@ -64,12 +66,12 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                                             } else {
                                                 log::info!(
                                                     "[{}] Downloading File: {} | Size: {} ...",
-                                                    BOT_NAME,
+                                                    state.read().config.name,
                                                     file_path,
                                                     file_size
                                                 );
                                             }
-                                            command.execute(&state, &cx).send().await;
+                                            command.execute(&state, &cx).send(&state).await;
                                         }
                                     }
                                 }
@@ -82,6 +84,8 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                         }
                     }
                 }
+            } else {
+                dbg!(cx.update);
             }
         })
         .await;
@@ -97,9 +101,18 @@ async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery
                     if let Some(button_id) = ids.get(1) {
                         if let Some(keyboard) = keyboards.get(*keyboard_id) {
                             if let Some(button) = keyboard.get_btn(button_id.to_string()) {
-                                button.kind.execute(&state, &cx).send().await;
+                                button.kind.execute(&state, &cx).send(&state).await;
                                 state.write().keyboards.remove(*keyboard_id);
                             }
+                        } else if let Err(err) = cx
+                            .bot
+                            .answer_callback_query(cx.update.id.clone())
+                            .text("Outdated buttons!\nPlease rerun command.")
+                            .show_alert(true)
+                            .send()
+                            .await
+                        {
+                            log::warn!("{}", err);
                         }
                     }
                 }
@@ -139,9 +152,10 @@ fn meal_photo(meal: Meal, keyboard: Keyboard) -> InlineQueryResult {
 async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
     rx.map(|cx| (cx, state.clone()))
         .for_each_concurrent(None, |(cx, state)| async move {
+            let bot_name = state.read().config.name.clone();
             let query = cx.update.query;
             let mut results: Vec<InlineQueryResult> = vec![];
-            if let Ok(command) = Command::parse(&query, BOT_NAME) {
+            if let Ok(command) = Command::parse(&query, bot_name) {
                 match command {
                     Command::New {
                         meal_name,
@@ -164,12 +178,11 @@ async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
                     _ => {}
                 }
             } else {
-                let key: String = DBKeys::Meals.into();
                 let meals_db: Vec<Option<Meal>> = state
                     .read()
                     .sh
                     .db
-                    .liter(&key)
+                    .liter(&DBKeys::Meals.to_string())
                     .map(|item| item.get_item::<Meal>())
                     .collect();
                 meals_db.iter().for_each(|item| {
@@ -201,22 +214,85 @@ async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
         .await;
 }
 
+async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
+    rx.map(|cx| (cx, state.clone()))
+        .for_each_concurrent(None, |(cx, state)| async move {
+            let poll_opt = {
+                let s = state.read();
+                let opt = s.polls.iter().find(|(_, p)| p.poll_id == cx.update.id);
+                if let Some((_, poll)) = opt {
+                    Some(poll.clone())
+                } else {
+                    None
+                }
+            };
+            if let Some(poll) = poll_opt {
+                let meal_id = poll.meal_id.clone();
+                let total_votes = cx.update.total_voter_count;
+                if total_votes > 0 && cx.update.is_closed && !poll.is_canceled {
+                    log::info!("Poll closed: {:?}", poll);
+                    let votes: Vec<(i32, i32)> = cx
+                        .update
+                        .options
+                        .iter()
+                        .enumerate()
+                        .map(|(i, po)| ((i + 1) as i32, po.voter_count))
+                        .collect();
+                    let avg = votes.iter().fold(0, |sum, vote| sum + vote.0 * vote.1) / total_votes;
+                    let meal_opt = {
+                        let s = state.read();
+                        let opt = s.meals.iter().find(|(_, p)| p.id == meal_id);
+                        if let Some((_, meal)) = opt {
+                            Some(meal.clone())
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(mut meal) = meal_opt {
+                        meal.rate(Some(((avg as u8) + meal.rating.unwrap_or(avg as u8)) / 2));
+                        state.write().meals.insert(meal.id.clone(), meal.clone());
+                        state.write().sh.db.ladd(&DBKeys::Meals.to_string(), &meal);
+                        let _ = cx.bot
+                            .send_message(poll.chat_id, format!("{}\n\nSaved!", meal))
+                            .send()
+                            .await;
+                        log::info!("Saving Meal: {:?}", meal);
+                    }
+                }
+            }
+        })
+        .await;
+}
+
 #[tokio::main]
 async fn main() {
     run().await;
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Config {
+    password: String,
+    token: String,
+    name: String,
+}
+
 async fn run() {
     teloxide::enable_logging!();
-    log::info!("[{}] Starting...", BOT_NAME);
-    let bot = BotBuilder::new().build();
-    let state = Arc::new(RwLock::new(State::default()));
+    log::info!("Reading Config...");
+    let config_str = fs::read_to_string("./config.json").expect("No config file found!");
+    let config: Config = serde_json::from_str(&config_str).expect("Wrong config file!");
+    let state = Arc::new(RwLock::new(State::new(config.clone())));
+    let bot = BotBuilder::new().token(config.token).build();
     let state_2 = state.clone();
     let state_3 = state.clone();
+    let state_4 = state.clone();
+
+    log::info!("Dispatching Bot...");
     Dispatcher::new(bot)
         .messages_handler(|rx| handle_message(state, rx))
         .callback_queries_handler(|rx| handle_callback(state_2, rx))
         .inline_queries_handler(|rx| handle_inline(state_3, rx))
+        .polls_handler(|rx| handle_polls(state_4, rx))
         .dispatch()
         .await;
 }

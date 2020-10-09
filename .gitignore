@@ -1,3 +1,5 @@
-/target
-/images
-*.db
+*
+!/src/*
+!.gitignore
+!Cargo.toml
+!*.md

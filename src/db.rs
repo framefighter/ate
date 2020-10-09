@@ -4,6 +4,7 @@ use std::fmt;
 #[derive(Debug)]
 pub enum DBKeys {
     Meals,
+    Whitelist,
 }
 
 impl fmt::Display for DBKeys {
@@ -38,9 +39,13 @@ impl StoreHandler {
                 SerializationMethod::Bin,
             )
         };
-        let key: String = DBKeys::Meals.into();
-        if !db.lexists(&key) {
-            if let Err(err) = db.lcreate(&key) {
+        if !db.lexists(&DBKeys::Meals.to_string()) {
+            if let Err(err) = db.lcreate(&DBKeys::Meals.to_string()) {
+                log::warn!("{}", err);
+            }
+        }
+        if !db.lexists(&DBKeys::Whitelist.to_string()) {
+            if let Err(err) = db.lcreate(&DBKeys::Whitelist.to_string()) {
                 log::warn!("{}", err);
             }
         }
