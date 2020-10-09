@@ -18,6 +18,7 @@ use keyboard::Keyboard;
 mod state;
 use state::State;
 mod poll;
+mod request;
 
 pub const MAX_RATING: u8 = 5;
 pub const BOT_NAME: &'static str = "eat_tracker_bot";
@@ -32,7 +33,7 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
             if let Some(text) = cx.update.text() {
                 let parsed = Command::parse(text, BOT_NAME);
                 if let Ok(command) = parsed {
-                    command.execute(&state, &cx).send().await;
+                    command.execute(&state, &cx).send(&state).await;
                 } else if let Err(err) = parsed {
                     if let Err(err) = cx.answer(err.to_string()).send().await {
                         log::warn!("{}", err);
@@ -70,7 +71,7 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                                                     file_size
                                                 );
                                             }
-                                            command.execute(&state, &cx).send().await;
+                                            command.execute(&state, &cx).send(&state).await;
                                         }
                                     }
                                 }
@@ -250,7 +251,7 @@ async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
                         meal.rate(Some(((avg as u8) + meal.rating.unwrap_or(avg as u8)) / 2));
                         state.write().meals.insert(meal.id.clone(), meal.clone());
                         state.write().sh.db.ladd(&DBKeys::Meals.to_string(), &meal);
-                        log::info!("Saving meal: {}", meal);
+                        log::info!("Saving Meal: {:?}", meal);
                     }
                 }
             }

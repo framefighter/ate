@@ -13,6 +13,7 @@ use crate::db::DBKeys;
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
 use crate::poll::Poll;
+use crate::request::{RequestKind, RequestResult};
 use crate::{ContextCallback, StateLock, MAX_RATING};
 
 #[derive(Debug, Clone)]
@@ -62,25 +63,26 @@ impl ButtonKind {
         cx: &ContextCallback,
         text: String,
         reply_markup: InlineKeyboardMarkup,
-    ) -> ButtonResult {
-        let mut er = ButtonResult::default();
+    ) -> RequestResult {
+        let mut result = RequestResult::default();
         if let Some(msg) = &cx.update.message {
-            er.message(
+            result.add(RequestKind::EditMessage(
                 cx.bot
-                    .edit_message_text(ChatId::Id(msg.chat_id()), msg.id, text)
-                    .reply_markup(reply_markup),
-            );
-        } else if let Some(id) = &cx.update.inline_message_id {
-            er.inline_message(
+                    .edit_message_text(ChatId::Id(msg.chat_id()), msg.id, text.clone())
+                    .reply_markup(reply_markup.clone()),
+            ));
+        }
+        if let Some(id) = &cx.update.inline_message_id {
+            result.add(RequestKind::EditInlineMessage(
                 cx.bot
                     .edit_inline_message_text(id, text)
                     .reply_markup(reply_markup),
-            );
+            ));
         }
-        er
+        result
     }
 
-    pub fn run(button: &ButtonKind, state: &StateLock, cx: &ContextCallback) -> ButtonResult {
+    pub fn run(button: &ButtonKind, state: &StateLock, cx: &ContextCallback) -> RequestResult {
         match button {
             ButtonKind::SaveMeal { meal_id } => {
                 let meals = state.read().meals.clone();
@@ -151,20 +153,20 @@ impl ButtonKind {
                     .inline_keyboard(),
             ),
             ButtonKind::PollRating { meal } => {
-                let mut result = ButtonResult::default();
+                let mut result = RequestResult::default();
                 if let Some(message) = &cx.update.message {
                     let answers: Vec<String> = (0..MAX_RATING)
                         .into_iter()
                         .map(|r| "⭐".repeat(r as usize + 1))
                         .collect();
-                    result.send_poll = Some((
-                        meal.clone(),
+                    result.add(RequestKind::Poll(
                         cx.bot
                             .send_poll(
                                 ChatId::Id(message.chat_id()),
                                 format!("Rate the meal: {}", meal.name.to_uppercase()),
                                 answers,
                             )
+                            .open_period(60)
                             .reply_to_message_id(message.id)
                             .reply_markup(ReplyMarkup::InlineKeyboardMarkup(
                                 Keyboard::new()
@@ -172,25 +174,27 @@ impl ButtonKind {
                                     .save(&state)
                                     .inline_keyboard(),
                             )),
+                        meal.clone(),
                     ));
                 }
                 result
             }
             ButtonKind::SavePollRating { meal_id } => {
-                let mut result = ButtonResult::default();
+                let mut result = RequestResult::default();
                 if let Some((_, poll)) = state
                     .read()
                     .polls
                     .iter()
                     .find(|(_, p)| &p.meal_id == meal_id)
                 {
-                    result.stop_poll =
-                        Some(cx.bot.stop_poll(poll.chat_id.clone(), poll.message_id));
+                    result.add(RequestKind::StopPoll(
+                        cx.bot.stop_poll(poll.chat_id.clone(), poll.message_id),
+                    ));
                 }
                 result
             }
             ButtonKind::CancelPollRating { meal_id } => {
-                let mut result = ButtonResult::default();
+                let mut result = RequestResult::default();
                 if let Some((_, mut poll)) = state
                     .write()
                     .polls
@@ -198,107 +202,16 @@ impl ButtonKind {
                     .find(|(_, p)| &p.meal_id == meal_id)
                 {
                     poll.is_canceled = true;
-                    result.stop_poll =
-                        Some(cx.bot.stop_poll(poll.chat_id.clone(), poll.message_id));
+                    result.add(RequestKind::StopPoll(
+                        cx.bot.stop_poll(poll.chat_id.clone(), poll.message_id),
+                    ));
                 }
                 result
             }
         }
     }
-    pub fn execute(&self, state: &StateLock, cx: &ContextCallback) -> ButtonResult {
+    pub fn execute(&self, state: &StateLock, cx: &ContextCallback) -> RequestResult {
         Self::run(self, state, cx)
-    }
-}
-
-pub struct ButtonResult {
-    pub edit_message: Option<EditMessageText>,
-    pub edit_photo: Option<EditMessageMedia>,
-    pub edit_inline_message: Option<EditInlineMessageText>,
-    pub edit_inline_photo: Option<EditInlineMessageMedia>,
-    pub send_poll: Option<(Meal, SendPoll)>,
-    pub stop_poll: Option<StopPoll>,
-}
-
-impl Default for ButtonResult {
-    fn default() -> Self {
-        Self {
-            edit_message: None,
-            edit_photo: None,
-            edit_inline_message: None,
-            edit_inline_photo: None,
-            send_poll: None,
-            stop_poll: None,
-        }
-    }
-}
-
-impl ButtonResult {
-    pub fn message(&mut self, edit_message: EditMessageText) {
-        self.edit_message = Some(edit_message);
-    }
-    pub fn photo(&mut self, edit_photo: EditMessageMedia) {
-        self.edit_photo = Some(edit_photo);
-    }
-    pub fn inline_message(&mut self, edit_inline_message: EditInlineMessageText) {
-        self.edit_inline_message = Some(edit_inline_message);
-    }
-    pub fn inline_photo(&mut self, edit_inline_photo: EditInlineMessageMedia) {
-        self.edit_inline_photo = Some(edit_inline_photo);
-    }
-    pub async fn send(&self, state: &StateLock) {
-        if let Some(edit_message) = &self.edit_message {
-            if let Err(err) = edit_message.send().await {
-                log::warn!("{}", err);
-            }
-        }
-        if let Some(edit_photo) = &self.edit_photo {
-            if let Err(err) = edit_photo.send().await {
-                log::warn!("{}", err);
-            }
-        }
-        if let Some(edit_inline_message) = &self.edit_inline_message {
-            if let Err(err) = edit_inline_message.send().await {
-                log::warn!("{}", err);
-            }
-        }
-        if let Some(edit_inline_photo) = &self.edit_inline_photo {
-            if let Err(err) = edit_inline_photo.send().await {
-                log::warn!("{}", err);
-            }
-        }
-        if let Some(send_poll) = &self.send_poll {
-            let result = send_poll.1.send().await;
-            let meal = send_poll.0.clone();
-            if let Ok(message) = result {
-                match message {
-                    Message {
-                        kind:
-                            MessageKind::Common(MessageCommon {
-                                media_kind: MediaKind::Poll(MediaPoll { poll, .. }),
-                                ..
-                            }),
-                        id: message_id,
-                        chat:
-                            Chat {
-                                id: chat_id_raw, ..
-                            },
-                        ..
-                    } => {
-                        let poll_id = poll.id;
-                        let chat_id = ChatId::Id(chat_id_raw);
-                        Poll::new(poll_id, chat_id, message_id, meal.id).save(&state);
-                    }
-                    _ => {}
-                }
-            } else if let Err(err) = result {
-                log::warn!("{}", err);
-            }
-        }
-        if let Some(stop_poll) = &self.stop_poll {
-            if let Err(err) = stop_poll.send().await {
-                log::warn!("{}", err);
-            }
-        }
     }
 }
 

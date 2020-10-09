@@ -8,6 +8,7 @@ use crate::button::{Button, ButtonKind};
 use crate::db::DBKeys;
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
+use crate::request::{RequestKind, RequestResult};
 use crate::{ContextMessage, StateLock, MAX_RATING};
 
 fn create_command(
@@ -74,18 +75,15 @@ pub enum Command {
 }
 
 impl Command {
-    pub fn run(command: &Command, state: &StateLock, cx: &ContextMessage) -> CommandResult {
-        let mut cr = CommandResult {
-            send_message: None,
-            send_photo: None,
-        };
+    pub fn run(command: &Command, state: &StateLock, cx: &ContextMessage) -> RequestResult {
+        let mut request = RequestResult::default();
         match command {
             Command::Help => {
-                cr.message(cx.answer(Command::descriptions()));
+                request.message(cx.answer(Command::descriptions()));
             }
             Command::NewMeal(meal_name) => {
                 let meal = Meal::new(meal_name.clone()).save(&state);
-                cr.message(
+                request.message(
                     cx.answer(format!("{}\n\nHow did it taste?", meal))
                         .reply_markup(
                             Keyboard::new()
@@ -95,8 +93,34 @@ impl Command {
                         ),
                 );
             }
+            Command::New {
+                meal_name,
+                rating,
+                tags,
+                url,
+            } => {
+                let meal = Meal::new(meal_name.clone())
+                    .rate(*rating)
+                    .tag(tags.clone())
+                    .url(url.clone())
+                    .save(&state);
+                request.message(
+                    cx.answer(format!("{}", meal)).reply_markup(
+                        Keyboard::new()
+                            .buttons(vec![
+                                vec![Button::new(
+                                    "Rate with Poll".into(),
+                                    ButtonKind::PollRating { meal: meal.clone() },
+                                )],
+                                button::save_meal_button_row(meal.id),
+                            ])
+                            .save(&state)
+                            .inline_keyboard(),
+                    ),
+                );
+            }
             Command::Get(meal_name) => {
-                let mut meal_q: Option<Meal> = None;
+                let mut meal_v: Vec<Meal> = vec![];
                 state
                     .read()
                     .sh
@@ -106,18 +130,19 @@ impl Command {
                         let meal_opt = item.get_item::<Meal>();
                         if let Some(meal_f) = meal_opt {
                             if &meal_f.name == meal_name {
-                                meal_q = Some(meal_f);
+                                meal_v.push(meal_f);
                             }
                         }
                     });
-                if let Some(meal) = meal_q {
+                dbg!(meal_v.clone());
+                for meal in meal_v {
                     if meal.photos.len() > 0 {
-                        cr.photo(
+                        request.add(RequestKind::Photo(
                             cx.answer_photo(InputFile::FileId(meal.photos[0].file_id.clone()))
                                 .caption(format!("{}", meal)),
-                        );
+                        ));
                     } else {
-                        cr.message(cx.answer(format!("{}", meal)));
+                        request.message(cx.answer(format!("{}", meal)));
                     }
                 }
             }
@@ -146,15 +171,15 @@ impl Command {
                         log::warn!("{}", err);
                     }
                     if meal.photos.len() > 0 {
-                        cr.photo(
+                        request.add(RequestKind::Photo(
                             cx.answer_photo(InputFile::FileId(meal.photos[0].file_id.clone()))
                                 .caption(format!("{}\n\nRemoved!", meal)),
-                        );
+                        ));
                     } else {
-                        cr.message(cx.answer(format!("{}\n\nRemoved!", meal)));
+                        request.message(cx.answer(format!("{}\n\nRemoved!", meal)));
                     }
                 } else {
-                    cr.message(
+                    request.message(
                         cx.answer(format!("{}\n\nMeal not found!", meal_name.to_uppercase())),
                     );
                 }
@@ -195,7 +220,7 @@ impl Command {
                 let choices =
                     random_choice().random_choice_f64(&meal_btns, &weights, *days as usize);
 
-                cr.message(
+                request.message(
                     cx.answer(format!("Plan:\n(Click to see details)"))
                         .reply_markup(
                             Keyboard::new()
@@ -205,33 +230,7 @@ impl Command {
                         ),
                 );
             }
-            Command::New {
-                meal_name,
-                rating,
-                tags,
-                url,
-            } => {
-                dbg!(rating);
-                let meal = Meal::new(meal_name.clone())
-                    .rate(*rating)
-                    .tag(tags.clone())
-                    .url(url.clone())
-                    .save(&state);
-                cr.message(
-                    cx.answer(format!("{}", meal)).reply_markup(
-                        Keyboard::new()
-                            .buttons(vec![
-                                button::save_meal_button_row(meal.id.clone()),
-                                vec![Button::new(
-                                    "Rate with Poll".into(),
-                                    ButtonKind::PollRating { meal },
-                                )],
-                            ])
-                            .save(&state)
-                            .inline_keyboard(),
-                    ),
-                );
-            }
+
             Command::List => {
                 let meal_btns: Vec<Vec<Button>> = state
                     .read()
@@ -250,7 +249,7 @@ impl Command {
                         }
                     })
                     .collect();
-                cr.message(
+                request.message(
                     cx.answer(format!("List:")).reply_markup(
                         Keyboard::new()
                             .buttons(meal_btns)
@@ -260,36 +259,10 @@ impl Command {
                 );
             }
         };
-        cr
+        request
     }
 
-    pub fn execute(&self, state: &StateLock, cx: &ContextMessage) -> CommandResult {
+    pub fn execute(&self, state: &StateLock, cx: &ContextMessage) -> RequestResult {
         Command::run(self, state, cx)
-    }
-}
-
-pub struct CommandResult {
-    pub send_message: Option<SendMessage>,
-    pub send_photo: Option<SendPhoto>,
-}
-
-impl CommandResult {
-    pub fn message(&mut self, send_message: SendMessage) {
-        self.send_message = Some(send_message);
-    }
-    pub fn photo(&mut self, send_photo: SendPhoto) {
-        self.send_photo = Some(send_photo);
-    }
-    pub async fn send(&self) {
-        if let Some(send_message) = &self.send_message {
-            if let Err(err) = send_message.send().await {
-                log::warn!("{}", err);
-            }
-        }
-        if let Some(send_photo) = &self.send_photo {
-            if let Err(err) = send_photo.send().await {
-                log::warn!("{}", err);
-            }
-        }
     }
 }
