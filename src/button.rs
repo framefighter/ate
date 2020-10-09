@@ -5,7 +5,7 @@ use crate::db::DBKeys;
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
 use crate::request::{RequestKind, RequestResult};
-use crate::{ContextCallback, StateLock, MAX_RATING};
+use crate::{ContextCallback, StateLock};
 
 #[derive(Debug, Clone)]
 pub struct Button {
@@ -78,18 +78,18 @@ impl ButtonKind {
             ButtonKind::SaveMeal { meal_id } => {
                 let meals = state.read().meals.clone();
                 let meal_opt = meals.get(meal_id).clone();
-                if let Some(meal) = meal_opt {
-                    state.write().sh.db.ladd(&DBKeys::Meals.to_string(), &meal);
-                    state.write().meals.remove(meal_id);
-                    let text = format!("{}\n\nSaved!", meal);
-                    Self::edit_callback_text(&cx, text, Keyboard::new().inline_keyboard())
-                } else {
-                    let text = "Failed to save, meal not found!";
-                    Self::edit_callback_text(
+                match meal_opt {
+                    Some(meal) => {
+                        state.write().sh.db.ladd(&DBKeys::Meals.to_string(), &meal);
+                        state.write().meals.remove(meal_id);
+                        let text = format!("{}\n\nSaved!", meal);
+                        Self::edit_callback_text(&cx, text, Keyboard::new().inline_keyboard())
+                    }
+                    None => Self::edit_callback_text(
                         &cx,
-                        text.to_string(),
+                        "Failed to save, meal not found!".to_string(),
                         Keyboard::new().inline_keyboard(),
-                    )
+                    ),
                 }
             }
             ButtonKind::CancelMeal { meal_id } => {
@@ -100,41 +100,48 @@ impl ButtonKind {
                     Keyboard::new().inline_keyboard(),
                 )
             }
-            ButtonKind::RateMeal { meal_id, rating } => {
-                let mut text = "Not Found!".to_string();
-                if let Some(meal) = state.write().meals.get_mut(meal_id) {
-                    meal.rate(Some((*rating).min(1).max(MAX_RATING)));
-                    text = format!("{}\n\nChange Rating or Save your Meal!", meal,);
-                }
-                Self::edit_callback_text(
-                    &cx,
-                    text,
-                    Keyboard::new()
-                        .buttons(vec![
-                            rate_meal_button_row(*rating, meal_id.clone()),
-                            save_meal_button_row(meal_id.clone()),
-                        ])
-                        .save(&state)
-                        .inline_keyboard(),
-                )
-            }
-            ButtonKind::DeleteMeal { meal } => {
-                let text = if let Ok(b) = state
+            ButtonKind::RateMeal { meal_id, rating } => Self::edit_callback_text(
+                &cx,
+                match state.write().meals.get_mut(meal_id) {
+                    Some(meal) => {
+                        meal.rate(Some(*rating));
+                        format!("{}\n\nChange rating or save your meal!", meal,)
+                    }
+                    None => {
+                        log::warn!("Meal not found: {}", meal_id);
+                        "No meal to rate found!".to_string()
+                    }
+                },
+                Keyboard::new()
+                    .buttons(vec![
+                        rate_meal_button_row(*rating, meal_id.clone()),
+                        save_meal_button_row(meal_id.clone()),
+                    ])
+                    .save(&state)
+                    .inline_keyboard(),
+            ),
+            ButtonKind::DeleteMeal { meal } => Self::edit_callback_text(
+                &cx,
+                match state
                     .write()
                     .sh
                     .db
                     .lrem_value(&DBKeys::Meals.to_string(), &meal)
                 {
-                    if b {
-                        format!("{}\n\nRemoved!", meal,)
-                    } else {
-                        format!("{}\n\nNot Found!", meal,)
+                    Ok(b) => {
+                        if b {
+                            format!("{}\n\nRemoved!", meal,)
+                        } else {
+                            format!("{}\n\nNot Found!", meal,)
+                        }
                     }
-                } else {
-                    format!("{}\n\nSomething went wrong!", meal,)
-                };
-                Self::edit_callback_text(&cx, text, Keyboard::new().inline_keyboard())
-            }
+                    Err(err) => {
+                        log::warn!("Delete Meal: {}", err);
+                        format!("{}\n\nSomething went wrong!", meal)
+                    }
+                },
+                Keyboard::new().inline_keyboard(),
+            ),
             ButtonKind::DisplayMeal { meal } => Self::edit_callback_text(
                 &cx,
                 format!("{}", meal),
@@ -146,10 +153,15 @@ impl ButtonKind {
             ButtonKind::PollRating { meal } => {
                 let mut result = RequestResult::default();
                 if let Some(message) = &cx.update.message {
-                    let answers: Vec<String> = (0..MAX_RATING)
+                    let answers: Vec<String> = (1..=5)
                         .into_iter()
-                        .map(|r| "⭐".repeat(r as usize + 1))
+                        .map(|r| "⭐".repeat(r as usize))
                         .collect();
+                    result.add(RequestKind::EditMessage(cx.bot.edit_message_text(
+                        message.chat_id(),
+                        message.id,
+                        format!("{}\n\nVoting...", meal),
+                    )));
                     result.add(RequestKind::Poll(
                         cx.bot
                             .send_poll(
@@ -207,7 +219,7 @@ impl ButtonKind {
 }
 
 pub fn rate_meal_button_row(rating: u8, meal_id: String) -> Vec<Button> {
-    (1..=MAX_RATING)
+    (1..=5)
         .into_iter()
         .map(|r| {
             Button::new(

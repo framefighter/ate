@@ -1,6 +1,8 @@
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
+use std::fs;
 use std::sync::Arc;
 use teloxide::types::File as TgFile;
 use teloxide::{dispatching::*, prelude::*, types::*, utils::command::BotCommand, BotBuilder};
@@ -20,9 +22,6 @@ use state::State;
 mod poll;
 mod request;
 
-pub const MAX_RATING: u8 = 5;
-pub const BOT_NAME: &'static str = "eat_tracker_bot";
-
 pub type StateLock = Arc<RwLock<State>>;
 pub type ContextCallback = UpdateWithCx<CallbackQuery>;
 pub type ContextMessage = UpdateWithCx<Message>;
@@ -30,8 +29,9 @@ pub type ContextMessage = UpdateWithCx<Message>;
 async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
     rx.map(|cx| (cx, state.clone()))
         .for_each_concurrent(None, |(cx, state)| async move {
+            let bot_name = state.read().config.name.clone();
             if let Some(text) = cx.update.text() {
-                let parsed = Command::parse(text, BOT_NAME);
+                let parsed = Command::parse(text, bot_name);
                 if let Ok(command) = parsed {
                     command.execute(&state, &cx).send(&state).await;
                 } else if let Err(err) = parsed {
@@ -42,7 +42,7 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
             } else if let Some(photos) = cx.update.photo() {
                 if let Some(last_photo) = photos.last() {
                     if let Some(caption) = cx.update.caption() {
-                        let parsed = Command::parse(caption, BOT_NAME);
+                        let parsed = Command::parse(caption, bot_name);
                         if let Ok(command) = parsed {
                             match &command {
                                 Command::New { .. } => {
@@ -66,7 +66,7 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                                             } else {
                                                 log::info!(
                                                     "[{}] Downloading File: {} | Size: {} ...",
-                                                    BOT_NAME,
+                                                    state.read().config.name,
                                                     file_path,
                                                     file_size
                                                 );
@@ -152,9 +152,10 @@ fn meal_photo(meal: Meal, keyboard: Keyboard) -> InlineQueryResult {
 async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
     rx.map(|cx| (cx, state.clone()))
         .for_each_concurrent(None, |(cx, state)| async move {
+            let bot_name = state.read().config.name.clone();
             let query = cx.update.query;
             let mut results: Vec<InlineQueryResult> = vec![];
-            if let Ok(command) = Command::parse(&query, BOT_NAME) {
+            if let Ok(command) = Command::parse(&query, bot_name) {
                 match command {
                     Command::New {
                         meal_name,
@@ -251,6 +252,10 @@ async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
                         meal.rate(Some(((avg as u8) + meal.rating.unwrap_or(avg as u8)) / 2));
                         state.write().meals.insert(meal.id.clone(), meal.clone());
                         state.write().sh.db.ladd(&DBKeys::Meals.to_string(), &meal);
+                        let _ = cx.bot
+                            .send_message(poll.chat_id, format!("{}\n\nSaved!", meal))
+                            .send()
+                            .await;
                         log::info!("Saving Meal: {:?}", meal);
                     }
                 }
@@ -264,14 +269,25 @@ async fn main() {
     run().await;
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Config {
+    password: String,
+    token: String,
+    name: String,
+}
+
 async fn run() {
     teloxide::enable_logging!();
-    log::info!("Starting...");
-    let bot = BotBuilder::new().build();
-    let state = Arc::new(RwLock::new(State::default()));
+    log::info!("Reading Config...");
+    let config_str = fs::read_to_string("./config.json").expect("No config file found!");
+    let config: Config = serde_json::from_str(&config_str).expect("Wrong config file!");
+    let state = Arc::new(RwLock::new(State::new(config.clone())));
+    let bot = BotBuilder::new().token(config.token).build();
     let state_2 = state.clone();
     let state_3 = state.clone();
     let state_4 = state.clone();
+
+    log::info!("Dispatching Bot...");
     Dispatcher::new(bot)
         .messages_handler(|rx| handle_message(state, rx))
         .callback_queries_handler(|rx| handle_callback(state_2, rx))
