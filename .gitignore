@@ -1,5 +1,5 @@
-/target
-/images
-*.lock
-token.txt
-*.db
+*
+!/src/*
+!.gitignore
+!Cargo.toml
+!*.md
