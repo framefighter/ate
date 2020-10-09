@@ -1,6 +1,6 @@
-use teloxide::types::ChatId;
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
+use teloxide::types::ChatId;
 
 use crate::StateLock;
 
@@ -10,17 +10,25 @@ pub struct Poll {
     pub poll_id: String,
     pub chat_id: ChatId,
     pub message_id: i32,
+    pub reply_message_id: i32,
     pub meal_id: String,
     pub is_canceled: bool,
 }
 
 impl Poll {
-    pub fn new(poll_id: String, chat_id: ChatId, message_id: i32, meal_id: String) -> Self {
+    pub fn new(
+        poll_id: String,
+        chat_id: ChatId,
+        message_id: i32,
+        reply_message_id: i32,
+        meal_id: String,
+    ) -> Self {
         Self {
             id: nanoid!(),
             poll_id,
             chat_id,
             message_id,
+            reply_message_id,
             meal_id,
             is_canceled: false,
         }

@@ -178,6 +178,7 @@ impl ButtonKind {
                                     .inline_keyboard(),
                             )),
                         meal.clone(),
+                        message.id,
                     ));
                 }
                 result

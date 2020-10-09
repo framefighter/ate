@@ -12,7 +12,7 @@ pub enum RequestKind {
     EditInlineMessage(EditInlineMessageText),
     EditMedia(EditMessageMedia),
     EditInlineMedia(EditInlineMessageMedia),
-    Poll(SendPoll, Meal),
+    Poll(SendPoll, Meal, i32),
     StopPoll(StopPoll),
 }
 
@@ -64,30 +64,39 @@ impl RequestResult {
                     Ok(res) => log::info!("Edit Inline Media: {:?}", res),
                     Err(err) => log::warn!("Edit Inline Media: {}", err),
                 },
-                RequestKind::Poll(send_request, meal) => match send_request.send().await {
-                    Ok(message) => match message.clone() {
-                        Message {
-                            kind:
-                                MessageKind::Common(MessageCommon {
-                                    media_kind: MediaKind::Poll(MediaPoll { poll, .. }),
-                                    ..
-                                }),
-                            id: message_id,
-                            chat:
-                                Chat {
-                                    id: chat_id_raw, ..
-                                },
-                            ..
-                        } => {
-                            let poll_id = poll.id;
-                            let chat_id = ChatId::Id(chat_id_raw);
-                            Poll::new(poll_id, chat_id, message_id, meal.id.clone()).save(&state);
-                            log::info!("Send Poll: {:?}", message);
-                        }
-                        _ => log::warn!("No Poll found in Message: {:?}", message),
-                    },
-                    Err(err) => log::warn!("Send Poll: {}", err),
-                },
+                RequestKind::Poll(send_request, meal, reply_message_id) => {
+                    match send_request.send().await {
+                        Ok(message) => match message.clone() {
+                            Message {
+                                kind:
+                                    MessageKind::Common(MessageCommon {
+                                        media_kind: MediaKind::Poll(MediaPoll { poll, .. }),
+                                        ..
+                                    }),
+                                id: message_id,
+                                chat:
+                                    Chat {
+                                        id: chat_id_raw, ..
+                                    },
+                                ..
+                            } => {
+                                let poll_id = poll.id;
+                                let chat_id = ChatId::Id(chat_id_raw);
+                                Poll::new(
+                                    poll_id,
+                                    chat_id,
+                                    message_id,
+                                    *reply_message_id,
+                                    meal.id.clone(),
+                                )
+                                .save(&state);
+                                log::info!("Send Poll: {:?}", message);
+                            }
+                            _ => log::warn!("No Poll found in Message: {:?}", message),
+                        },
+                        Err(err) => log::warn!("Send Poll: {}", err),
+                    }
+                }
                 RequestKind::StopPoll(send_request) => match send_request.send().await {
                     Ok(res) => log::info!("Stop Poll: {:?}", res),
                     Err(err) => log::warn!("Stop Poll: {}", err),

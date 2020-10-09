@@ -242,8 +242,7 @@ async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
                     let meal_opt = {
                         let s = state.read();
                         let opt = s.meals.iter().find(|(_, p)| p.id == meal_id);
-                        if let Some((_, meal)) = opt {
-                            Some(meal.clone())
+                        if let Some((_, meal)) = opt {                            Some(meal.clone())
                         } else {
                             None
                         }
@@ -252,10 +251,19 @@ async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
                         meal.rate(Some(((avg as u8) + meal.rating.unwrap_or(avg as u8)) / 2));
                         state.write().meals.insert(meal.id.clone(), meal.clone());
                         state.write().sh.db.ladd(&DBKeys::Meals.to_string(), &meal);
-                        let _ = cx.bot
-                            .send_message(poll.chat_id, format!("{}\n\nSaved!", meal))
+                        match cx
+                            .bot
+                            .edit_message_text(
+                                poll.chat_id,
+                                poll.reply_message_id,
+                                format!("{}\n\nSaved!", meal),
+                            )
                             .send()
-                            .await;
+                            .await
+                        {
+                            Ok(res) => {}
+                            Err(err) => log::warn!("{}", err),
+                        }
                         log::info!("Saving Meal: {:?}", meal);
                     }
                 }
