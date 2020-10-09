@@ -19,6 +19,7 @@ save, create, plan, and admire your meals with telegram.
 
 ### v0.3.0
 
+- [X] remove meals per command `/remove <name>`
 - [X] group polling for meal rating
 - [X] whitelist users `/op <username> <password (from config)>`
 - [X] (handle multiple meals with same name)
