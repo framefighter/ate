@@ -4,6 +4,7 @@ use std::fmt;
 #[derive(Debug)]
 pub enum DBKeys {
     Meals,
+    Keyboards,
     Whitelist,
 }
 
@@ -23,8 +24,8 @@ pub struct StoreHandler {
     pub db: pickledb::PickleDb,
 }
 
-impl StoreHandler {
-    pub fn new() -> Self {
+impl Default for StoreHandler {
+    fn default() -> Self {
         let loaded_db = PickleDb::load(
             "meals.db",
             PickleDbDumpPolicy::AutoDump,
@@ -46,6 +47,11 @@ impl StoreHandler {
         }
         if !db.lexists(&DBKeys::Whitelist.to_string()) {
             if let Err(err) = db.lcreate(&DBKeys::Whitelist.to_string()) {
+                log::warn!("{}", err);
+            }
+        }
+        if !db.lexists(&DBKeys::Keyboards.to_string()) {
+            if let Err(err) = db.lcreate(&DBKeys::Keyboards.to_string()) {
                 log::warn!("{}", err);
             }
         }

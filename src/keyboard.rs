@@ -1,10 +1,11 @@
 use teloxide::types::{InlineKeyboardMarkup, InlineKeyboardButton};
 use nanoid::nanoid;
+use serde::{Serialize, Deserialize};
 
 use crate::StateLock;
 use crate::button::Button;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Keyboard {
     pub id: String,
     pub buttons: Vec<Vec<Button>>,

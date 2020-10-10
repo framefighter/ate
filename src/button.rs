@@ -1,4 +1,5 @@
 use nanoid::nanoid;
+use serde::{Deserialize, Serialize};
 use teloxide::types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup, ReplyMarkup};
 
 use crate::db::DBKeys;
@@ -7,7 +8,7 @@ use crate::meal::Meal;
 use crate::request::{RequestKind, RequestResult};
 use crate::{ContextCallback, StateLock};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Button {
     pub text: String,
     pub id: String,
@@ -37,7 +38,7 @@ impl Button {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ButtonKind {
     DisplayMeal { meal: Meal },
     SaveMeal { meal_id: String },
@@ -80,10 +81,12 @@ impl ButtonKind {
                 let meal_opt = meals.get(meal_id).clone();
                 match meal_opt {
                     Some(meal) => {
-                        state.write().sh.db.ladd(&DBKeys::Meals.to_string(), &meal);
-                        state.write().meals.remove(meal_id);
-                        let text = format!("{}\n\nSaved!", meal);
-                        Self::edit_callback_text(&cx, text, Keyboard::new().inline_keyboard())
+                        state.write().save_meal(&meal);
+                        Self::edit_callback_text(
+                            &cx,
+                            format!("{}\n\nSaved!", meal),
+                            Keyboard::new().inline_keyboard(),
+                        )
                     }
                     None => Self::edit_callback_text(
                         &cx,
@@ -93,7 +96,7 @@ impl ButtonKind {
                 }
             }
             ButtonKind::CancelMeal { meal_id } => {
-                state.write().meals.remove(meal_id);
+                state.write().remove_meal(meal_id.clone());
                 Self::edit_callback_text(
                     &cx,
                     "Canceled!".to_string(),
@@ -162,6 +165,14 @@ impl ButtonKind {
                         message.id,
                         format!("{}\n\nVoting...", meal),
                     )));
+                    let keyboard = Keyboard::new()
+                        .buttons(vec![vec![Button::new(
+                            "Cancel".to_uppercase(),
+                            ButtonKind::CancelPollRating {
+                                meal_id: meal.id.clone(),
+                            },
+                        )]])
+                        .save(state);
                     result.add(RequestKind::Poll(
                         cx.bot
                             .send_poll(
@@ -169,16 +180,13 @@ impl ButtonKind {
                                 format!("Rate the meal: {}", meal.name.to_uppercase()),
                                 answers,
                             )
-                            .open_period(60)
                             .reply_to_message_id(message.id)
                             .reply_markup(ReplyMarkup::InlineKeyboardMarkup(
-                                Keyboard::new()
-                                    .buttons(vec![save_poll_button_row(meal.clone())])
-                                    .save(state)
-                                    .inline_keyboard(),
+                                keyboard.inline_keyboard(),
                             )),
                         meal.clone(),
                         message.id,
+                        keyboard.id,
                     ));
                 }
                 result

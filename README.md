@@ -34,3 +34,8 @@ save, create, plan, and admire your meals with telegram.
 - [ ] more sophisticated planning (tag variety and frequenzy of meals)
 - [ ] advanced error handling
 - [ ] database migration
+
+## Bugs
+
+- Polling after canceling can bug
+- Meals and Polls not getting removed consistently (rework `state` to simplify this)

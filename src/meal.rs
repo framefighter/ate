@@ -47,9 +47,9 @@ impl Meal {
         self.clone()
     }
 
-    pub fn save(self, state: &StateLock) -> Self {
+    pub fn save(&mut self, state: &StateLock) -> Self {
         state.write().meals.insert(self.id.clone(), self.clone());
-        self
+        self.clone()
     }
 }
 
