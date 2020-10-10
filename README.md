@@ -24,18 +24,22 @@ save, create, plan, and admire your meals with telegram.
 - [X] whitelist users `/op <username> <password (from config)>`
 - [X] (handle multiple meals with same name)
 
+#### v0.3.1
+
+- [X] removed delete button
+- [X] improved poll flow
+
+### v0.4.0
+
+- [ ] rework state
+- [ ] database migration
+- [ ] make db chat/group exclusive
+- [ ] edit entries after creation
+
 ### future releases
 
-- [ ] make db chat/group exclusive
 - [ ] handle multiple meals with same name v2
-- [ ] edit entries after creation
 - [ ] support multiple pictures per meal
 - [ ] expand step by step creation
 - [ ] more sophisticated planning (tag variety and frequenzy of meals)
 - [ ] advanced error handling
-- [ ] database migration
-
-## Bugs
-
-- Polling after canceling can bug
-- Meals and Polls not getting removed consistently (rework `state` to simplify this)
