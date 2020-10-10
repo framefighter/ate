@@ -11,7 +11,6 @@ use tokio::fs::File;
 mod db;
 use db::DBKeys;
 mod button;
-use button::{Button, ButtonKind};
 mod meal;
 use meal::Meal;
 mod command;

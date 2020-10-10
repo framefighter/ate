@@ -1,7 +1,6 @@
 use teloxide::requests::*;
 use teloxide::types::*;
 
-use crate::keyboard::Keyboard;
 use crate::meal::Meal;
 use crate::poll::Poll;
 use crate::StateLock;
