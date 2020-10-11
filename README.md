@@ -31,13 +31,14 @@ save, create, plan, and admire your meals with telegram.
 
 ### v0.4.0
 
-- [ ] rework state
-- [ ] database migration
-- [ ] make db chat/group exclusive
-- [ ] edit entries after creation
+- [X] rework state
+- [X] crate backups on start
+- [X] edit entries after creation
 
 ### future releases
 
+- [ ] make db chat/group exclusive
+- [ ] database migration
 - [ ] handle multiple meals with same name v2
 - [ ] support multiple pictures per meal
 - [ ] expand step by step creation
