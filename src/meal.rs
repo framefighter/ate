@@ -16,10 +16,10 @@ pub struct Meal {
 }
 
 impl Meal {
-    pub fn new(name: String) -> Self {
+    pub fn new(name: &String) -> Self {
         Self {
             id: nanoid!(),
-            name: name,
+            name: name.to_string(),
             rating: None,
             url: None,
             tags: vec![],
@@ -27,29 +27,32 @@ impl Meal {
         }
     }
 
-    pub fn rate(&mut self, rating: Option<u8>) -> Self {
+    pub fn rate(&mut self, rating: Option<u8>) -> &mut Self {
         self.rating = rating;
-        self.clone()
+        self
     }
 
-    pub fn tag(&mut self, tags: Option<Vec<String>>) -> Self {
+    pub fn tag(&mut self, tags: Option<Vec<String>>) -> &mut Self {
         self.tags.append(&mut tags.unwrap_or(vec![]));
-        self.clone()
+        self
     }
 
-    pub fn url(&mut self, url: Option<String>) -> Self {
+    pub fn url(&mut self, url: Option<String>) -> &mut Self {
         self.url = url;
-        self.clone()
+        self
     }
 
-    pub fn photo(&mut self, photo: PhotoSize) -> Self {
+    pub fn photo(&mut self, photo: PhotoSize) -> &mut Self {
         self.photos.push(photo);
-        self.clone()
+        self
     }
 
-    pub fn save(&mut self, state: &StateLock) -> Self {
-        state.write().meals_mut().insert(self.id.clone(), self.clone());
-        self.clone()
+    pub fn save(&self, state: &StateLock) -> &Self {
+        state
+            .write()
+            .meals_mut()
+            .insert(self.id.clone(), self.clone());
+        self
     }
 }
 

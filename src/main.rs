@@ -180,17 +180,17 @@ async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
                         tags,
                         url,
                     } => {
-                        let meal = Meal::new(meal_name)
-                            .rate(rating)
-                            .tag(tags)
-                            .url(url)
-                            .save(&state);
-                        results.push(meal_article(
-                            meal.clone(),
-                            Keyboard::new()
-                                .buttons(vec![button::save_meal_button_row(meal.id)])
-                                .save(&state),
-                        ));
+                        if false { // TODO meal with meal_name already exists
+                        } else {
+                            let mut meal = Meal::new(&meal_name);
+                            meal.rate(rating).tag(tags).url(url).save(&state);
+                            results.push(meal_article(
+                                meal.clone(),
+                                Keyboard::new()
+                                    .buttons(vec![button::save_meal_button_row(&meal.id)])
+                                    .save(&state),
+                            ));
+                        }
                     }
                     _ => {}
                 }
@@ -199,7 +199,7 @@ async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
                 meals_db.iter().for_each(|meal| {
                     let matcher = SkimMatcherV2::default();
                     let keyboard = Keyboard::new()
-                        .buttons(vec![button::delete_meal_button_row(meal.clone())])
+                        .buttons(vec![button::delete_meal_button_row(meal)])
                         .save(&state);
                     if matcher.fuzzy_match(&meal.name, &query).is_some() || query.len() == 0 {
                         if meal.photos.len() > 0 {

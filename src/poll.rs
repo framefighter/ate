@@ -104,7 +104,7 @@ impl Poll {
                                             "Rate with Poll".into(),
                                             ButtonKind::PollRating { meal: meal.clone() },
                                         )],
-                                        button::save_meal_button_row(meal.id),
+                                        button::save_meal_button_row(&meal.id),
                                     ])
                                     .save(&state)
                                     .inline_keyboard(),
@@ -125,7 +125,7 @@ impl Poll {
             log::info!("Poll Vote...",);
             if total_votes > 0 {
                 let keyboard = Keyboard::new()
-                    .buttons(vec![button::save_poll_button_row(meal)])
+                    .buttons(vec![button::save_poll_button_row(&meal)])
                     .save(&state);
                 state.write().polls_mut().iter_mut().for_each(|(_, poll)| {
                     if poll.id == self.id {
