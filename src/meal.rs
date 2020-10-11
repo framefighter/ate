@@ -1,9 +1,11 @@
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use teloxide::types::PhotoSize;
+use teloxide::types::{InputFile, PhotoSize, ReplyMarkup};
 
-use crate::StateLock;
+use crate::keyboard::Keyboard;
+use crate::request::RequestKind;
+use crate::{ContextMessage, StateLock};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Meal {
@@ -53,6 +55,43 @@ impl Meal {
             .meals_mut()
             .insert(self.id.clone(), self.clone());
         self
+    }
+
+    pub fn request(
+        &self,
+        cx: &ContextMessage,
+        sub_text: Option<String>,
+        keyboard: Option<Keyboard>,
+    ) -> RequestKind {
+        if self.photos.len() > 0 {
+            let mut req = cx
+                .answer_photo(InputFile::FileId(
+                    self.photos.last().unwrap().file_id.clone(),
+                ))
+                .caption(format!(
+                    "{}{}",
+                    self,
+                    if let Some(text) = sub_text {
+                        format!("\n\n{}", text)
+                    } else {
+                        "".to_string()
+                    }
+                ));
+            if let Some(keyboard_) = keyboard {
+                req = req.reply_markup(ReplyMarkup::InlineKeyboardMarkup(
+                    keyboard_.inline_keyboard(),
+                ));
+            }
+            RequestKind::Photo(req)
+        } else {
+            let mut req = cx.answer(format!("{}", self));
+            if let Some(keyboard_) = keyboard {
+                req = req.reply_markup(ReplyMarkup::InlineKeyboardMarkup(
+                    keyboard_.inline_keyboard(),
+                ));
+            }
+            RequestKind::Message(req)
+        }
     }
 }
 

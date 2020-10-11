@@ -59,19 +59,84 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                                         ))
                                         .await;
                                         if let Ok(mut file) = file_r {
-                                            if let Err(err) =
-                                                cx.bot.download_file(&file_path, &mut file).await
+                                            match cx.bot.download_file(&file_path, &mut file).await
                                             {
-                                                log::warn!("{}", err);
-                                            } else {
-                                                log::info!(
-                                                    "[{}] Downloading File: {} | Size: {} ...",
-                                                    state.read().config.name,
+                                                Ok(_) => log::info!(
+                                                    "Downloading File: {} | Size: {} ...",
                                                     file_path,
                                                     file_size
-                                                );
+                                                ),
+                                                Err(err) => log::warn!("{}", err),
                                             }
                                             command.execute(&state, &cx).send(&state).await;
+                                        }
+                                    }
+                                }
+                                Command::Photo(meal_name) => {
+                                    if let Ok(TgFile {
+                                        file_path,
+                                        file_unique_id,
+                                        file_size,
+                                        ..
+                                    }) = cx.bot.get_file(last_photo.file_id.clone()).send().await
+                                    {
+                                        let file_r = File::create(format!(
+                                            "./images/{}.png",
+                                            file_unique_id
+                                        ))
+                                        .await;
+                                        if let Ok(mut file) = file_r {
+                                            match cx.bot.download_file(&file_path, &mut file).await
+                                            {
+                                                Ok(_) => log::info!(
+                                                    "Downloading File: {} | Size: {} ...",
+                                                    file_path,
+                                                    file_size
+                                                ),
+                                                Err(err) => log::warn!("{}", err),
+                                            }
+                                            let meals = state
+                                                .read()
+                                                .get_saved_meals_by_name(meal_name.clone());
+                                            if meals.len() == 0 {
+                                                RequestResult::default()
+                                                    .add(RequestKind::Message(cx.answer(format!(
+                                                        "No meal with name {}",
+                                                        meal_name
+                                                    ))))
+                                                    .send(&state)
+                                                    .await;
+                                            }
+                                            for meal in meals {
+                                                let res = state.write().remove_saved_meal(&meal);
+                                                match res {
+                                                    Ok(rem) => {
+                                                        if rem {
+                                                            let mut new_meal = meal.clone();
+                                                            new_meal.photo(last_photo.clone());
+                                                            state.write().save_meal(&new_meal);
+                                                            RequestResult::default()
+                                                                .add(
+                                                                    new_meal.request(
+                                                                        &cx,
+                                                                        Some(
+                                                                            "Saved new photo!"
+                                                                                .to_string(),
+                                                                        ),
+                                                                        None,
+                                                                    ),
+                                                                )
+                                                                .send(&state)
+                                                                .await;
+                                                            log::info!(
+                                                                "Added photo to meal {}",
+                                                                meal_name,
+                                                            );
+                                                        }
+                                                    }
+                                                    Err(err) => log::warn!("{}", err),
+                                                }
+                                            }
                                         }
                                     }
                                 }

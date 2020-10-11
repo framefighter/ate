@@ -1,5 +1,5 @@
 use random_choice::random_choice;
-use teloxide::types::{InputFile, User};
+use teloxide::types::User;
 use teloxide::utils::command::{BotCommand, ParseError};
 
 use crate::button;
@@ -160,6 +160,8 @@ pub enum Command {
         parse_with = "meal_name_command"
     )]
     Ref(String, String),
+    #[command(description = "Add Photo to meal.")]
+    Photo(String),
 }
 
 impl Command {
@@ -198,16 +200,18 @@ impl Command {
                         Command::NewMeal(meal_name) => {
                             let meal = Meal::new(meal_name);
                             meal.save(&state);
-                            request.message(
-                                cx.answer(format!("{}\n\nHow did it taste?", meal))
-                                    .reply_markup(
+                            request.add(
+                                meal.request(
+                                    &cx,
+                                    Some("How did it taste?".to_string()),
+                                    Some(
                                         Keyboard::new()
                                             .buttons(vec![button::rate_meal_button_row(
                                                 0, &meal.id,
                                             )])
-                                            .save(&state)
-                                            .inline_keyboard(),
+                                            .save(&state),
                                     ),
+                                ),
                             );
                         }
                         Command::New {
@@ -221,33 +225,43 @@ impl Command {
                                 .tag(tags.clone())
                                 .url(url.clone())
                                 .save(&state);
-                            request.message(
-                                cx.answer(format!("{}", meal)).reply_markup(
-                                    Keyboard::new()
-                                        .buttons(vec![
-                                            vec![Button::new(
-                                                "Rate with Poll".into(),
-                                                ButtonKind::PollRating { meal: meal.clone() },
-                                            )],
-                                            button::save_meal_button_row(&meal.id),
-                                        ])
-                                        .save(&state)
-                                        .inline_keyboard(),
+                            request.add(
+                                meal.request(
+                                    &cx,
+                                    None,
+                                    Some(
+                                        Keyboard::new()
+                                            .buttons(vec![
+                                                vec![Button::new(
+                                                    "Rate with Poll".into(),
+                                                    ButtonKind::PollRating { meal: meal.clone() },
+                                                )],
+                                                button::save_meal_button_row(&meal.id),
+                                            ])
+                                            .save(&state),
+                                    ),
                                 ),
                             );
                         }
                         Command::Get(meal_name) => {
-                            for meal in state.read().get_saved_meals_by_name(meal_name.clone()) {
-                                if meal.photos.len() > 0 {
-                                    request.add(RequestKind::Photo(
-                                        cx.answer_photo(InputFile::FileId(
-                                            meal.photos[0].file_id.clone(),
-                                        ))
-                                        .caption(format!("{}", meal)),
-                                    ));
-                                } else {
-                                    request.message(cx.answer(format!("{}", meal)));
-                                }
+                            let meals = state.read().get_saved_meals_by_name(meal_name.clone());
+                            for meal in meals {
+                                request.add(
+                                    meal.request(
+                                        &cx,
+                                        None,
+                                        Some(
+                                            Keyboard::new()
+                                                .buttons(vec![vec![Button::new(
+                                                    "Cancel".to_uppercase(),
+                                                    ButtonKind::CancelMeal {
+                                                        meal_id: meal.id.clone(),
+                                                    },
+                                                )]])
+                                                .save(&state),
+                                        ),
+                                    ),
+                                );
                             }
                         }
                         Command::Remove(meal_name) => {
@@ -261,16 +275,7 @@ impl Command {
                                 if let Err(err) = state.write().remove_saved_meal(&meal) {
                                     log::warn!("{}", err);
                                 }
-                                if meal.photos.len() > 0 {
-                                    request.add(RequestKind::Photo(
-                                        cx.answer_photo(InputFile::FileId(
-                                            meal.photos[0].file_id.clone(),
-                                        ))
-                                        .caption(format!("{}\n\nRemoved!", meal)),
-                                    ));
-                                } else {
-                                    request.message(cx.answer(format!("{}\n\nRemoved!", meal)));
-                                }
+                                request.add(meal.request(&cx, None, None));
                             }
                         }
                         Command::Plan(days) => {
@@ -345,10 +350,14 @@ impl Command {
                                             let mut new_meal = meal.clone();
                                             new_meal.name = new_name.clone();
                                             state.write().save_meal(&new_meal);
-                                            request.message(cx.answer(format!(
-                                                "{}\n\nRenamed meal {} to {}",
-                                                new_meal, meal_name, new_name
-                                            )));
+                                            request.add(meal.request(
+                                                &cx,
+                                                Some(format!(
+                                                    "Renamed meal {} to {}",
+                                                    meal_name, new_name
+                                                )),
+                                                None,
+                                            ));
                                             log::info!("Renamed meal {} to {}", meal_name, new_name)
                                         }
                                     }
@@ -370,10 +379,14 @@ impl Command {
                                             let mut new_meal = meal.clone();
                                             new_meal.rating = Some(new_rating.clone());
                                             state.write().save_meal(&new_meal);
-                                            request.message(cx.answer(format!(
-                                                "{}\n\nChanged rating of meal {} to {}",
-                                                new_meal, meal_name, new_rating
-                                            )));
+                                            request.add(meal.request(
+                                                &cx,
+                                                Some(format!(
+                                                    "Changed rating of meal {} to {}",
+                                                    meal_name, new_rating
+                                                )),
+                                                None,
+                                            ));
                                             log::info!(
                                                 " Changed rating of meal {} to {}",
                                                 meal_name,
@@ -399,10 +412,14 @@ impl Command {
                                             let mut new_meal = meal.clone();
                                             new_meal.tag(Some(new_tags.clone()));
                                             state.write().save_meal(&new_meal);
-                                            request.message(cx.answer(format!(
-                                                "{}\n\nAdded tags to meal {}: {:?}",
-                                                new_meal, meal_name, new_tags
-                                            )));
+                                            request.add(meal.request(
+                                                &cx,
+                                                Some(format!(
+                                                    "Added tags to meal {}: {:?}",
+                                                    meal_name, new_tags
+                                                )),
+                                                None,
+                                            ));
                                             log::info!(
                                                 "Added tags to meal {}: {:?}",
                                                 meal_name,
@@ -426,7 +443,7 @@ impl Command {
                                     Ok(rem) => {
                                         if rem {
                                             let mut new_meal = meal.clone();
-                                            let meal_tags = meal.tags;
+                                            let meal_tags = meal.tags.clone();
                                             let mut new_tags = vec![];
                                             for tag in meal_tags {
                                                 if !rem_tags.contains(&tag) {
@@ -435,10 +452,14 @@ impl Command {
                                             }
                                             new_meal.tags = new_tags.clone();
                                             state.write().save_meal(&new_meal);
-                                            request.message(cx.answer(format!(
-                                                "{}\n\nRemoved tags from meal {}: {:?}",
-                                                new_meal, meal_name, rem_tags
-                                            )));
+                                            request.add(meal.request(
+                                                &cx,
+                                                Some(format!(
+                                                    "Removed tags from meal {}: {:?}",
+                                                    meal_name, rem_tags
+                                                )),
+                                                None,
+                                            ));
                                             log::info!(
                                                 "Removed tags from meal {}: {:?}",
                                                 meal_name,
@@ -464,10 +485,14 @@ impl Command {
                                             let mut new_meal = meal.clone();
                                             new_meal.url = Some(new_reference.clone());
                                             state.write().save_meal(&new_meal);
-                                            request.message(cx.answer(format!(
-                                                "{}\n\nChanged url of meal {} to {}",
-                                                new_meal, meal_name, new_reference
-                                            )));
+                                            request.add(meal.request(
+                                                &cx,
+                                                Some(format!(
+                                                    "Changed url of meal {} to {}",
+                                                    meal_name, new_reference
+                                                )),
+                                                None,
+                                            ));
                                             log::info!(
                                                 "Changed url of meal {} to {}",
                                                 meal_name,
@@ -478,6 +503,9 @@ impl Command {
                                     Err(err) => log::warn!("{}", err),
                                 }
                             }
+                        }
+                        Command::Photo(_) => {
+                            request.message(cx.answer(format!("Attach a photo to your message!")));
                         }
                     }
                 }

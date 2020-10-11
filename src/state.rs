@@ -114,7 +114,7 @@ impl State {
             .db
             .liter(&DBKeys::Meals.to_string())
             .filter_map(|item| item.get_item::<Meal>())
-            .filter(|meal| meal.name == meal_name)
+            .filter(|meal| meal.name.to_uppercase() == meal_name.to_uppercase())
             .collect()
     }
 
