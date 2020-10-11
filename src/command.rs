@@ -4,7 +4,6 @@ use teloxide::utils::command::{BotCommand, ParseError};
 
 use crate::button;
 use crate::button::{Button, ButtonKind};
-use crate::db::DBKeys;
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
 use crate::request::{RequestKind, RequestResult};
@@ -16,7 +15,12 @@ fn create_command(
     let args: Vec<_> = input.split(",").collect();
     Ok((
         if let Some(name) = args.get(0) {
-            name.trim().to_string()
+            let meal_name = name.trim().to_string();
+            if meal_name.len() > 0 {
+                meal_name
+            } else {
+                return Err(ParseError::Custom("Provide a meal name!".into()));
+            }
         } else {
             return Err(ParseError::Custom("Provide a meal name!".into()));
         },
@@ -48,6 +52,65 @@ fn create_command(
         },
     ))
 }
+
+fn meal_name_command(input: String) -> Result<(String, String), ParseError> {
+    let args: Vec<_> = input.split(",").collect();
+    Ok((
+        if let Some(name) = args.get(0) {
+            name.trim().to_string()
+        } else {
+            return Err(ParseError::Custom("Provide a meal name!".into()));
+        },
+        if let Some(name) = args.get(1) {
+            name.trim().to_string()
+        } else {
+            return Err(ParseError::Custom("Provide a second argument!".into()));
+        },
+    ))
+}
+
+fn tag_meal_command(input: String) -> Result<(String, Vec<String>), ParseError> {
+    let args: Vec<_> = input.split(",").collect();
+    Ok((
+        if let Some(name) = args.get(0) {
+            name.trim().to_string()
+        } else {
+            return Err(ParseError::Custom("Provide a meal name!".into()));
+        },
+        if let Some(tags_str) = args.get(1) {
+            tags_str
+                .trim()
+                .split(" ")
+                .map(|s| s.trim().to_string())
+                .collect()
+        } else {
+            vec![]
+        },
+    ))
+}
+
+fn rate_meal_command(input: String) -> Result<(String, u8), ParseError> {
+    let args: Vec<_> = input.split(",").collect();
+    Ok((
+        if let Some(name) = args.get(0) {
+            name.trim().to_string()
+        } else {
+            return Err(ParseError::Custom("Provide a meal name!".into()));
+        },
+        if let Some(rating_str) = args.get(1) {
+            if let Ok(rating) = rating_str.trim().parse::<u8>() {
+                rating
+            } else {
+                return Err(ParseError::Custom(
+                    "Rating (2nd argument) has to be a number!".into(),
+                ));
+            }
+        } else {
+            return Err(ParseError::Custom("Provide a second argument!".into()));
+        },
+    ))
+}
+
 #[derive(BotCommand, Debug, Clone)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
 pub enum Command {
@@ -70,8 +133,33 @@ pub enum Command {
     Remove(String),
     #[command(description = "Get a list of all meals.")]
     List,
-    #[command(description = "Whitelist user.", parse_with = "split")]
-    Op { user: String, password: String },
+    #[command(description = "Whitelist user.", parse_with = "meal_name_command")]
+    Op(String, String),
+    #[command(
+        description = "Rename existing meal.",
+        parse_with = "meal_name_command"
+    )]
+    Rename(String, String),
+    #[command(
+        description = "Change rating of existing meal.",
+        parse_with = "rate_meal_command"
+    )]
+    Rate(String, u8),
+    #[command(
+        description = "Add tags to existing meal.",
+        parse_with = "tag_meal_command"
+    )]
+    Tag(String, Vec<String>),
+    #[command(
+        description = "Add tags to existing meal.",
+        parse_with = "tag_meal_command"
+    )]
+    TagRemove(String, Vec<String>),
+    #[command(
+        description = "Edit reference of existing meal.",
+        parse_with = "meal_name_command"
+    )]
+    Ref(String, String),
 }
 
 impl Command {
@@ -80,16 +168,9 @@ impl Command {
         let user = cx.update.from();
         let config = state.read().config.clone();
         match command {
-            Command::Op {
-                user: username,
-                password,
-            } => {
+            Command::Op(username, password) => {
                 request.message(cx.answer(if password == &config.password {
-                    state
-                        .write()
-                        .sh
-                        .db
-                        .ladd(&DBKeys::Whitelist.to_string(), &username);
+                    state.write().whitelist_user(username.clone());
                     format!("Added user {} to whitelist.\nEnjoy!", username)
                 } else {
                     format!("Wrong password: {}", password)
@@ -97,13 +178,7 @@ impl Command {
             }
             _ => {}
         }
-        let whitelist: Vec<_> = state
-            .read()
-            .sh
-            .db
-            .liter(&DBKeys::Whitelist.to_string())
-            .filter_map(|item| item.get_item::<String>())
-            .collect();
+        let whitelist: Vec<_> = state.read().get_whitelisted_users();
         match user {
             Some(User {
                 username: Some(username),
@@ -121,14 +196,14 @@ impl Command {
                             request.message(cx.answer(Command::descriptions()));
                         }
                         Command::NewMeal(meal_name) => {
-                            let meal = Meal::new(meal_name.clone()).save(&state);
+                            let meal = Meal::new(meal_name);
+                            meal.save(&state);
                             request.message(
                                 cx.answer(format!("{}\n\nHow did it taste?", meal))
                                     .reply_markup(
                                         Keyboard::new()
                                             .buttons(vec![button::rate_meal_button_row(
-                                                0,
-                                                meal.id,
+                                                0, &meal.id,
                                             )])
                                             .save(&state)
                                             .inline_keyboard(),
@@ -141,8 +216,8 @@ impl Command {
                             tags,
                             url,
                         } => {
-                            let meal = Meal::new(meal_name.clone())
-                                .rate(*rating)
+                            let mut meal = Meal::new(meal_name);
+                            meal.rate(rating.clone())
                                 .tag(tags.clone())
                                 .url(url.clone())
                                 .save(&state);
@@ -154,7 +229,7 @@ impl Command {
                                                 "Rate with Poll".into(),
                                                 ButtonKind::PollRating { meal: meal.clone() },
                                             )],
-                                            button::save_meal_button_row(meal.id),
+                                            button::save_meal_button_row(&meal.id),
                                         ])
                                         .save(&state)
                                         .inline_keyboard(),
@@ -162,22 +237,7 @@ impl Command {
                             );
                         }
                         Command::Get(meal_name) => {
-                            let mut meal_v: Vec<Meal> = vec![];
-                            state
-                                .read()
-                                .sh
-                                .db
-                                .liter(&DBKeys::Meals.to_string())
-                                .for_each(|item| {
-                                    let meal_opt = item.get_item::<Meal>();
-                                    if let Some(meal_f) = meal_opt {
-                                        if &meal_f.name == meal_name {
-                                            meal_v.push(meal_f);
-                                        }
-                                    }
-                                });
-                            dbg!(meal_v.clone());
-                            for meal in meal_v {
+                            for meal in state.read().get_saved_meals_by_name(meal_name.clone()) {
                                 if meal.photos.len() > 0 {
                                     request.add(RequestKind::Photo(
                                         cx.answer_photo(InputFile::FileId(
@@ -191,27 +251,14 @@ impl Command {
                             }
                         }
                         Command::Remove(meal_name) => {
-                            let mut meal_q: Option<Meal> = None;
-                            state
-                                .read()
-                                .sh
-                                .db
-                                .liter(&DBKeys::Meals.to_string())
-                                .for_each(|item| {
-                                    let meal_opt = item.get_item::<Meal>();
-                                    if let Some(meal_f) = meal_opt {
-                                        if &meal_f.name == meal_name {
-                                            meal_q = Some(meal_f);
-                                        }
-                                    }
-                                });
-                            if let Some(meal) = meal_q {
-                                if let Err(err) = state
-                                    .write()
-                                    .sh
-                                    .db
-                                    .lrem_value(&DBKeys::Meals.to_string(), &meal)
-                                {
+                            let meals = state.read().get_saved_meals_by_name(meal_name.clone());
+                            if meals.len() == 0 {
+                                request.message(
+                                    cx.answer(format!("No meal with name {} found!", meal_name)),
+                                );
+                            }
+                            for meal in meals {
+                                if let Err(err) = state.write().remove_saved_meal(&meal) {
                                     log::warn!("{}", err);
                                 }
                                 if meal.photos.len() > 0 {
@@ -224,45 +271,23 @@ impl Command {
                                 } else {
                                     request.message(cx.answer(format!("{}\n\nRemoved!", meal)));
                                 }
-                            } else {
-                                request.message(cx.answer(format!(
-                                    "{}\n\nMeal not found!",
-                                    meal_name.to_uppercase()
-                                )));
                             }
                         }
                         Command::Plan(days) => {
-                            let meal_btns: Vec<Button> = state
-                                .read()
-                                .sh
-                                .db
-                                .liter(&DBKeys::Meals.to_string())
-                                .filter_map(|item| {
-                                    let meal_opt = item.get_item::<Meal>();
-                                    if let Some(meal) = meal_opt {
-                                        Some(Button::new(
-                                            meal.name.clone(),
-                                            ButtonKind::DisplayMeal { meal: meal },
-                                        ))
-                                    } else {
-                                        None
-                                    }
+                            let meals = state.read().get_saved_meals();
+                            let meal_btns: Vec<Button> = meals
+                                .iter()
+                                .map(|meal| {
+                                    Button::new(
+                                        meal.name.clone(),
+                                        ButtonKind::DisplayMeal { meal: meal.clone() },
+                                    )
                                 })
                                 .collect();
-                            let weights: Vec<f64> = state
-                                .read()
-                                .sh
-                                .db
-                                .liter(&DBKeys::Meals.to_string())
-                                .filter_map(|item| {
-                                    let meal_opt = item.get_item::<Meal>();
-                                    if let Some(meal) = meal_opt {
-                                        if let Some(rating) = meal.rating {
-                                            return Some(rating as f64);
-                                        }
-                                    }
-                                    None
-                                })
+                            let weights: Vec<f64> = meals
+                                .iter()
+                                .filter_map(|meal| meal.rating)
+                                .map(|r| r as f64)
                                 .collect();
                             let choices = random_choice().random_choice_f64(
                                 &meal_btns,
@@ -288,19 +313,13 @@ impl Command {
                         Command::List => {
                             let meal_btns: Vec<Vec<Button>> = state
                                 .read()
-                                .sh
-                                .db
-                                .liter(&DBKeys::Meals.to_string())
-                                .filter_map(|item| {
-                                    let meal_opt = item.get_item::<Meal>();
-                                    if let Some(meal) = meal_opt {
-                                        Some(vec![Button::new(
-                                            meal.name.clone(),
-                                            ButtonKind::DisplayMeal { meal: meal },
-                                        )])
-                                    } else {
-                                        None
-                                    }
+                                .get_saved_meals()
+                                .iter()
+                                .map(|meal| {
+                                    vec![Button::new(
+                                        meal.name.clone(),
+                                        ButtonKind::DisplayMeal { meal: meal.clone() },
+                                    )]
                                 })
                                 .collect();
                             request.message(
@@ -311,6 +330,154 @@ impl Command {
                                         .inline_keyboard(),
                                 ),
                             );
+                        }
+                        Command::Rename(meal_name, new_name) => {
+                            let meals = state.read().get_saved_meals_by_name(meal_name.clone());
+                            if meals.len() == 0 {
+                                request
+                                    .message(cx.answer(format!("No meal with name {}", meal_name)));
+                            }
+                            for meal in meals {
+                                let res = state.write().remove_saved_meal(&meal);
+                                match res {
+                                    Ok(rem) => {
+                                        if rem {
+                                            let mut new_meal = meal.clone();
+                                            new_meal.name = new_name.clone();
+                                            state.write().save_meal(&new_meal);
+                                            request.message(cx.answer(format!(
+                                                "{}\n\nRenamed meal {} to {}",
+                                                new_meal, meal_name, new_name
+                                            )));
+                                            log::info!("Renamed meal {} to {}", meal_name, new_name)
+                                        }
+                                    }
+                                    Err(err) => log::warn!("{}", err),
+                                }
+                            }
+                        }
+                        Command::Rate(meal_name, new_rating) => {
+                            let meals = state.read().get_saved_meals_by_name(meal_name.clone());
+                            if meals.len() == 0 {
+                                request
+                                    .message(cx.answer(format!("No meal with name {}", meal_name)));
+                            }
+                            for meal in meals {
+                                let res = state.write().remove_saved_meal(&meal);
+                                match res {
+                                    Ok(rem) => {
+                                        if rem {
+                                            let mut new_meal = meal.clone();
+                                            new_meal.rating = Some(new_rating.clone());
+                                            state.write().save_meal(&new_meal);
+                                            request.message(cx.answer(format!(
+                                                "{}\n\nChanged rating of meal {} to {}",
+                                                new_meal, meal_name, new_rating
+                                            )));
+                                            log::info!(
+                                                " Changed rating of meal {} to {}",
+                                                meal_name,
+                                                new_rating
+                                            )
+                                        }
+                                    }
+                                    Err(err) => log::warn!("{}", err),
+                                }
+                            }
+                        }
+                        Command::Tag(meal_name, new_tags) => {
+                            let meals = state.read().get_saved_meals_by_name(meal_name.clone());
+                            if meals.len() == 0 {
+                                request
+                                    .message(cx.answer(format!("No meal with name {}", meal_name)));
+                            }
+                            for meal in meals {
+                                let res = state.write().remove_saved_meal(&meal);
+                                match res {
+                                    Ok(rem) => {
+                                        if rem {
+                                            let mut new_meal = meal.clone();
+                                            new_meal.tag(Some(new_tags.clone()));
+                                            state.write().save_meal(&new_meal);
+                                            request.message(cx.answer(format!(
+                                                "{}\n\nAdded tags to meal {}: {:?}",
+                                                new_meal, meal_name, new_tags
+                                            )));
+                                            log::info!(
+                                                "Added tags to meal {}: {:?}",
+                                                meal_name,
+                                                new_tags
+                                            )
+                                        }
+                                    }
+                                    Err(err) => log::warn!("{}", err),
+                                }
+                            }
+                        }
+                        Command::TagRemove(meal_name, rem_tags) => {
+                            let meals = state.read().get_saved_meals_by_name(meal_name.clone());
+                            if meals.len() == 0 {
+                                request
+                                    .message(cx.answer(format!("No meal with name {}", meal_name)));
+                            }
+                            for meal in meals {
+                                let res = state.write().remove_saved_meal(&meal);
+                                match res {
+                                    Ok(rem) => {
+                                        if rem {
+                                            let mut new_meal = meal.clone();
+                                            let meal_tags = meal.tags;
+                                            let mut new_tags = vec![];
+                                            for tag in meal_tags {
+                                                if !rem_tags.contains(&tag) {
+                                                    new_tags.push(tag);
+                                                }
+                                            }
+                                            new_meal.tags = new_tags.clone();
+                                            state.write().save_meal(&new_meal);
+                                            request.message(cx.answer(format!(
+                                                "{}\n\nRemoved tags from meal {}: {:?}",
+                                                new_meal, meal_name, rem_tags
+                                            )));
+                                            log::info!(
+                                                "Removed tags from meal {}: {:?}",
+                                                meal_name,
+                                                rem_tags
+                                            )
+                                        }
+                                    }
+                                    Err(err) => log::warn!("{}", err),
+                                }
+                            }
+                        }
+                        Command::Ref(meal_name, new_reference) => {
+                            let meals = state.read().get_saved_meals_by_name(meal_name.clone());
+                            if meals.len() == 0 {
+                                request
+                                    .message(cx.answer(format!("No meal with name {}", meal_name)));
+                            }
+                            for meal in meals {
+                                let res = state.write().remove_saved_meal(&meal);
+                                match res {
+                                    Ok(rem) => {
+                                        if rem {
+                                            let mut new_meal = meal.clone();
+                                            new_meal.url = Some(new_reference.clone());
+                                            state.write().save_meal(&new_meal);
+                                            request.message(cx.answer(format!(
+                                                "{}\n\nChanged url of meal {} to {}",
+                                                new_meal, meal_name, new_reference
+                                            )));
+                                            log::info!(
+                                                "Changed url of meal {} to {}",
+                                                meal_name,
+                                                new_reference
+                                            )
+                                        }
+                                    }
+                                    Err(err) => log::warn!("{}", err),
+                                }
+                            }
                         }
                     }
                 }

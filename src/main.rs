@@ -8,9 +8,8 @@ use teloxide::types::File as TgFile;
 use teloxide::{dispatching::*, prelude::*, types::*, utils::command::BotCommand, BotBuilder};
 use tokio::fs::File;
 
-mod db;
-use db::DBKeys;
 mod button;
+mod db;
 mod meal;
 use meal::Meal;
 mod command;
@@ -86,7 +85,7 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                     }
                 }
             } else {
-                dbg!(cx.update);
+                log::warn!("Unhandled update!");
             }
         })
         .await;
@@ -95,28 +94,45 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
 async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery>) {
     rx.map(|cx| (cx, state.clone()))
         .for_each_concurrent(None, |(cx, state)| async move {
-            let keyboards = state.read().keyboards.clone();
-            if let Some(data) = cx.update.data.clone() {
-                let ids: Vec<_> = data.split(".").collect();
-                if let Some(keyboard_id) = ids.get(0) {
-                    if let Some(button_id) = ids.get(1) {
-                        if let Some(keyboard) = keyboards.get(*keyboard_id) {
-                            if let Some(button) = keyboard.get_btn(button_id.to_string()) {
-                                button.kind.execute(&state, &cx).send(&state).await;
-                                state.write().keyboards.remove(*keyboard_id);
+            let keyboards = state.read().keyboards().clone();
+            match cx.update.clone() {
+                CallbackQuery {
+                    data: Some(data),
+                    message: Some(message),
+                    id,
+                    ..
+                } => {
+                    let ids: Vec<_> = data.split(".").collect();
+                    match *ids {
+                        [keyboard_id, button_id] => match keyboards.get(keyboard_id) {
+                            Some(keyboard) => {
+                                if let Some(button) = keyboard.get_btn(button_id.to_string()) {
+                                    button.kind.execute(&state, &cx).send(&state).await;
+                                }
+                                state.write().keyboards_mut().remove(keyboard_id);
                             }
-                        } else if let Err(err) = cx
-                            .bot
-                            .answer_callback_query(cx.update.id.clone())
-                            .text("Outdated buttons!\nPlease rerun command.")
-                            .show_alert(true)
-                            .send()
-                            .await
-                        {
-                            log::warn!("{}", err);
-                        }
+                            None => {
+                                RequestResult::default()
+                                    .add(RequestKind::CallbackAnswer(
+                                        cx.bot
+                                            .answer_callback_query(id)
+                                            .text("Outdated buttons!\nPlease rerun command.")
+                                            .show_alert(true),
+                                    ))
+                                    .add(RequestKind::EditReplyMarkup(
+                                        cx.bot.edit_message_reply_markup(
+                                            message.chat_id(),
+                                            message.id,
+                                        ),
+                                    ))
+                                    .send(&state)
+                                    .await;
+                            }
+                        },
+                        [..] => {}
                     }
                 }
+                _ => {}
             }
             if let Err(err) = cx.bot.answer_callback_query(cx.update.id).send().await {
                 log::warn!("{}", err);
@@ -164,40 +180,32 @@ async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
                         tags,
                         url,
                     } => {
-                        let meal = Meal::new(meal_name)
-                            .rate(rating)
-                            .tag(tags)
-                            .url(url)
-                            .save(&state);
-                        results.push(meal_article(
-                            meal.clone(),
-                            Keyboard::new()
-                                .buttons(vec![button::save_meal_button_row(meal.id)])
-                                .save(&state),
-                        ));
+                        if false { // TODO meal with meal_name already exists
+                        } else {
+                            let mut meal = Meal::new(&meal_name);
+                            meal.rate(rating).tag(tags).url(url).save(&state);
+                            results.push(meal_article(
+                                meal.clone(),
+                                Keyboard::new()
+                                    .buttons(vec![button::save_meal_button_row(&meal.id)])
+                                    .save(&state),
+                            ));
+                        }
                     }
                     _ => {}
                 }
             } else {
-                let meals_db: Vec<Option<Meal>> = state
-                    .read()
-                    .sh
-                    .db
-                    .liter(&DBKeys::Meals.to_string())
-                    .map(|item| item.get_item::<Meal>())
-                    .collect();
-                meals_db.iter().for_each(|item| {
+                let meals_db: Vec<Meal> = state.read().get_saved_meals();
+                meals_db.iter().for_each(|meal| {
                     let matcher = SkimMatcherV2::default();
-                    if let Some(meal) = item {
-                        let keyboard = Keyboard::new()
-                            .buttons(vec![button::delete_meal_button_row(meal.clone())])
-                            .save(&state);
-                        if matcher.fuzzy_match(&meal.name, &query).is_some() || query.len() == 0 {
-                            if meal.photos.len() > 0 {
-                                results.push(meal_photo(meal.clone(), keyboard));
-                            } else {
-                                results.push(meal_article(meal.clone(), keyboard));
-                            }
+                    let keyboard = Keyboard::new()
+                        .buttons(vec![button::delete_meal_button_row(meal)])
+                        .save(&state);
+                    if matcher.fuzzy_match(&meal.name, &query).is_some() || query.len() == 0 {
+                        if meal.photos.len() > 0 {
+                            results.push(meal_photo(meal.clone(), keyboard));
+                        } else {
+                            results.push(meal_article(meal.clone(), keyboard));
                         }
                     }
                 });
@@ -219,8 +227,8 @@ async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
     rx.map(|cx| (cx, state.clone()))
         .for_each_concurrent(None, |(cx, state)| async move {
             let poll_opt = {
-                let s = state.read();
-                let opt = s.polls.iter().find(|(_, p)| p.poll_id == cx.update.id);
+                let polls = state.read().polls().clone();
+                let opt = polls.iter().find(|(_, p)| p.poll_id == cx.update.id);
                 if let Some((_, poll)) = opt {
                     Some(poll.clone())
                 } else {
@@ -230,65 +238,29 @@ async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
             match poll_opt {
                 Some(poll) => {
                     let meal_id = poll.meal_id.clone();
-                    let total_votes = cx.update.total_voter_count;
-                    if total_votes > 0 && cx.update.is_closed && !poll.is_canceled {
-                        let votes: Vec<(i32, i32)> = cx
-                            .update
-                            .options
-                            .iter()
-                            .enumerate()
-                            .map(|(i, po)| ((i + 1) as i32, po.voter_count))
-                            .collect();
-                        let avg =
-                            votes.iter().fold(0, |sum, vote| sum + vote.0 * vote.1) / total_votes;
-                        let meal_opt = {
-                            let s = state.read();
-                            let opt = s.meals.iter().find(|(_, meal)| meal.id == meal_id);
-                            if let Some((_, meal)) = opt {
-                                Some(meal.clone())
-                            } else {
-                                None
-                            }
-                        };
-                        match meal_opt {
-                            Some(mut meal) => {
-                                meal.rate(Some(
-                                    ((avg as u8) + meal.rating.unwrap_or(avg as u8)) / 2,
-                                ));
-                                state.write().meals.insert(meal.id.clone(), meal.clone());
-                                state.write().save_meal(&meal);
-                                log::info!("Poll closed: {}", meal.name);
-                                RequestResult::default()
-                                    .add(RequestKind::EditMessage(cx.bot.edit_message_text(
-                                        poll.chat_id,
-                                        poll.reply_message_id,
-                                        format!("{}\n\nSaved!", meal),
-                                    )))
-                                    .send(&state)
-                                    .await;
-                                log::info!("Saving Meal: {:?}", meal);
-                            }
-                            None => {
-                                log::info!(
-                                    "No meal with id {} found for poll: {:?}",
-                                    meal_id,
-                                    poll
-                                );
-                            }
+                    let meals = state.read().meals().clone();
+                    let meal_opt = meals.get(&meal_id).clone();
+                    match meal_opt {
+                        Some(meal) => {
+                            poll.handle_votes(&state, &cx, meal.clone())
+                                .send(&state)
+                                .await;
                         }
-                    } else if poll.is_canceled {
-                        RequestResult::default()
-                            .add(RequestKind::EditMessage(cx.bot.edit_message_text(
-                                poll.chat_id,
-                                poll.reply_message_id,
-                                format!("Poll Canceled!"),
-                            )))
-                            .send(&state)
-                            .await;
+                        None => {
+                            RequestResult::default()
+                                .add(RequestKind::StopPoll(
+                                    cx.bot
+                                        .stop_poll(poll.chat_id.clone(), poll.message_id.clone()),
+                                ))
+                                .send(&state)
+                                .await;
+                            state.write().polls_mut().remove(&poll.id.clone());
+                            log::warn!("No meal with id {} found for poll: {:?}", meal_id, poll);
+                        }
                     }
                 }
                 None => {
-                    log::info!("No poll with id: {}", cx.update.id);
+                    log::warn!("No poll with id: {}", cx.update.id);
                 }
             }
         })
@@ -305,6 +277,7 @@ pub struct Config {
     password: String,
     token: String,
     name: String,
+    backup: bool,
 }
 
 async fn run() {

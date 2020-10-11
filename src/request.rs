@@ -5,6 +5,7 @@ use crate::meal::Meal;
 use crate::poll::Poll;
 use crate::StateLock;
 
+#[derive(Clone)]
 pub enum RequestKind {
     Message(SendMessage),
     Photo(SendPhoto),
@@ -12,10 +13,14 @@ pub enum RequestKind {
     EditInlineMessage(EditInlineMessageText),
     EditMedia(EditMessageMedia),
     EditInlineMedia(EditInlineMessageMedia),
-    Poll(SendPoll, Meal, i32),
+    Poll(SendPoll, Meal, i32, String),
     StopPoll(StopPoll),
+    DeleteMessage(DeleteMessage),
+    EditReplyMarkup(EditMessageReplyMarkup),
+    CallbackAnswer(AnswerCallbackQuery),
 }
 
+#[derive(Clone)]
 pub struct RequestResult {
     pub requests: Vec<RequestKind>,
 }
@@ -27,12 +32,12 @@ impl Default for RequestResult {
 }
 
 impl RequestResult {
-    pub fn add(&mut self, request: RequestKind) -> &Self {
+    pub fn add(&mut self, request: RequestKind) -> &mut Self {
         self.requests.push(request);
         self
     }
 
-    pub fn message(&mut self, message: SendMessage) -> &Self {
+    pub fn message(&mut self, message: SendMessage) -> &mut Self {
         self.requests.push(RequestKind::Message(message));
         self
     }
@@ -44,6 +49,10 @@ impl RequestResult {
                     Ok(_) => log::info!("Send Message"),
                     Err(err) => log::warn!("Send Message: {}", err),
                 },
+                RequestKind::DeleteMessage(send_request) => match send_request.send().await {
+                    Ok(_) => log::info!("Delete Message"),
+                    Err(err) => log::warn!("Delete Message: {}", err),
+                },
                 RequestKind::Photo(send_request) => match send_request.send().await {
                     Ok(_) => log::info!("Send Photo"),
                     Err(err) => log::warn!("Send Photo: {}", err),
@@ -51,6 +60,10 @@ impl RequestResult {
                 RequestKind::EditMessage(send_request) => match send_request.send().await {
                     Ok(_) => log::info!("Edit Message"),
                     Err(err) => log::warn!("Edit Message: {}", err),
+                },
+                RequestKind::EditReplyMarkup(send_request) => match send_request.send().await {
+                    Ok(_) => log::info!("Edit Reply Markup"),
+                    Err(err) => log::warn!("Edit Reply Markup: {}", err),
                 },
                 RequestKind::EditInlineMessage(send_request) => match send_request.send().await {
                     Ok(_) => log::info!("Edit Inline Message"),
@@ -64,7 +77,11 @@ impl RequestResult {
                     Ok(_) => log::info!("Edit Inline Media"),
                     Err(err) => log::warn!("Edit Inline Media: {}", err),
                 },
-                RequestKind::Poll(send_request, meal, reply_message_id) => {
+                RequestKind::CallbackAnswer(send_request) => match send_request.send().await {
+                    Ok(_) => log::info!("Callback Answer"),
+                    Err(err) => log::warn!("Callback Answer: {}", err),
+                },
+                RequestKind::Poll(send_request, meal, reply_message_id, keyboard_id) => {
                     match send_request.send().await {
                         Ok(message) => match message.clone() {
                             Message {
@@ -88,6 +105,7 @@ impl RequestResult {
                                     message_id,
                                     *reply_message_id,
                                     meal.id.clone(),
+                                    keyboard_id.clone(),
                                 )
                                 .save(&state);
                                 log::info!("Send Poll",);
@@ -98,10 +116,17 @@ impl RequestResult {
                     }
                 }
                 RequestKind::StopPoll(send_request) => match send_request.send().await {
-                    Ok(_) => log::info!("Stop Poll"),
+                    Ok(_) => log::info!("Stopping Poll"),
                     Err(err) => log::warn!("Error Stop Poll: {}", err),
                 },
             }
         }
+        state.write().save_tg();
+        log::debug!(
+            "K: {} | M: {} | P: {}",
+            state.read().keyboards().len(),
+            state.read().meals().len(),
+            state.read().polls().len()
+        );
     }
 }
