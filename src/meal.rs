@@ -48,7 +48,7 @@ impl Meal {
     }
 
     pub fn save(&mut self, state: &StateLock) -> Self {
-        state.write().meals.insert(self.id.clone(), self.clone());
+        state.write().meals_mut().insert(self.id.clone(), self.clone());
         self.clone()
     }
 }

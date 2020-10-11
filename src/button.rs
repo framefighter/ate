@@ -2,7 +2,6 @@ use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use teloxide::types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup, ReplyMarkup};
 
-use crate::db::DBKeys;
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
 use crate::request::{RequestKind, RequestResult};
@@ -77,11 +76,12 @@ impl ButtonKind {
     pub fn run(button: &ButtonKind, state: &StateLock, cx: &ContextCallback) -> RequestResult {
         match button {
             ButtonKind::SaveMeal { meal_id } => {
-                let meals = state.read().meals.clone();
+                let meals = state.read().meals().clone();
                 let meal_opt = meals.get(meal_id).clone();
                 match meal_opt {
                     Some(meal) => {
                         state.write().save_meal(&meal);
+                        state.write().meals_mut().remove(&meal.id);
                         Self::edit_callback_text(
                             &cx,
                             format!("{}\n\nSaved!", meal),
@@ -96,41 +96,37 @@ impl ButtonKind {
                 }
             }
             ButtonKind::CancelMeal { meal_id } => {
-                state.write().remove_meal(meal_id.clone());
+                state.write().meals_mut().remove(&meal_id.clone());
                 Self::edit_callback_text(
                     &cx,
                     "Canceled!".to_string(),
                     Keyboard::new().inline_keyboard(),
                 )
             }
-            ButtonKind::RateMeal { meal_id, rating } => Self::edit_callback_text(
-                &cx,
-                match state.write().meals.get_mut(meal_id) {
-                    Some(meal) => {
-                        meal.rate(Some(*rating));
-                        format!("{}\n\nChange rating or save your meal!", meal,)
-                    }
-                    None => {
-                        log::warn!("Meal not found: {}", meal_id);
-                        "No meal to rate found!".to_string()
-                    }
-                },
-                Keyboard::new()
-                    .buttons(vec![
-                        rate_meal_button_row(*rating, meal_id.clone()),
-                        save_meal_button_row(meal_id.clone()),
-                    ])
-                    .save(state)
-                    .inline_keyboard(),
-            ),
+            ButtonKind::RateMeal { meal_id, rating } => {
+                let rated_meal = state.write().rate_meal(meal_id.clone(), rating.clone());
+                log::info!("Rated meal: {:?}", rated_meal);
+                Self::edit_callback_text(
+                    &cx,
+                    match rated_meal {
+                        Ok(meal) => format!("{}\n\nChange rating or save your meal!", meal),
+                        Err(()) => {
+                            log::warn!("Meal not found: {}", meal_id);
+                            "No meal to rate found!".to_string()
+                        }
+                    },
+                    Keyboard::new()
+                        .buttons(vec![
+                            rate_meal_button_row(*rating, meal_id.clone()),
+                            save_meal_button_row(meal_id.clone()),
+                        ])
+                        .save(state)
+                        .inline_keyboard(),
+                )
+            }
             ButtonKind::DeleteMeal { meal } => Self::edit_callback_text(
                 &cx,
-                match state
-                    .write()
-                    .sh
-                    .db
-                    .lrem_value(&DBKeys::Meals.to_string(), &meal)
-                {
+                match state.write().remove_saved_meal(&meal) {
                     Ok(b) => {
                         if b {
                             format!("{}\n\nRemoved!", meal,)
@@ -195,7 +191,7 @@ impl ButtonKind {
                 let mut result = RequestResult::default();
                 if let Some((_, poll)) = state
                     .read()
-                    .polls
+                    .polls()
                     .iter()
                     .find(|(_, p)| &p.meal_id == meal_id)
                 {
@@ -209,7 +205,7 @@ impl ButtonKind {
                 let mut result = RequestResult::default();
                 if let Some((_, mut poll)) = state
                     .write()
-                    .polls
+                    .polls_mut()
                     .iter_mut()
                     .find(|(_, p)| &p.meal_id == meal_id)
                 {

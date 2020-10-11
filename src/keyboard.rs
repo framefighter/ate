@@ -1,9 +1,9 @@
-use teloxide::types::{InlineKeyboardMarkup, InlineKeyboardButton};
 use nanoid::nanoid;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 
-use crate::StateLock;
 use crate::button::Button;
+use crate::StateLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Keyboard {
@@ -52,10 +52,12 @@ impl Keyboard {
     }
 
     pub fn save(self, state: &StateLock) -> Self {
-        state
-            .write()
-            .keyboards
-            .insert(self.id.clone(), self.clone());
+        if self.buttons.iter().flatten().count() > 0 {
+            state
+                .write()
+                .keyboards_mut()
+                .insert(self.id.clone(), self.clone());
+        }
         self
     }
 }

@@ -44,19 +44,22 @@ impl Poll {
     }
 
     pub fn save(self, state: &StateLock) -> Self {
-        state.write().polls.insert(self.id.clone(), self.clone());
+        state
+            .write()
+            .polls_mut()
+            .insert(self.id.clone(), self.clone());
         self
     }
 
     pub fn handle_votes(
-        &mut self,
+        &self,
         state: &StateLock,
         cx: &UpdateWithCx<TgPoll>,
         meal: Meal,
     ) -> RequestResult {
         let total_votes = cx.update.total_voter_count;
-        state.write().remove_poll(self.id.clone());
         if cx.update.is_closed {
+            state.write().polls_mut().remove(&self.id.clone());
             if total_votes > 0 && !self.is_canceled {
                 // someone voted and poll closed successfully ->
                 //              update meal and save meal and poll
@@ -71,6 +74,7 @@ impl Poll {
                 let mut meal = meal.clone();
                 meal.rate(Some(((avg as u8) + meal.rating.unwrap_or(avg as u8)) / 2));
                 state.write().save_meal(&meal);
+                state.write().meals_mut().remove(&meal.id);
                 log::info!("Poll closed: {}", meal.name);
                 // tell user that meal has been saved with new rating
                 RequestResult::default()
@@ -114,13 +118,20 @@ impl Poll {
         } else {
             // poll still in progress
             // remove poll keyboard
-            state.write().remove_keyboard(self.keyboard_id.clone());
-            log::info!("Poll Vote. {:?}", self);
+            state
+                .write()
+                .keyboards_mut()
+                .remove(&self.keyboard_id.clone());
+            log::info!("Poll Vote...",);
             if total_votes > 0 {
                 let keyboard = Keyboard::new()
                     .buttons(vec![button::save_poll_button_row(meal)])
                     .save(&state);
-                self.keyboard_id = keyboard.id.clone();
+                state.write().polls_mut().iter_mut().for_each(|(_, poll)| {
+                    if poll.id == self.id {
+                        poll.keyboard_id = keyboard.id.clone()
+                    }
+                });
                 // show save button
                 RequestResult::default()
                     .add(RequestKind::EditReplyMarkup(
@@ -138,8 +149,11 @@ impl Poll {
                         },
                     )]])
                     .save(&state);
-                self.keyboard_id = keyboard.id.clone();
-                // hide show button
+                state.write().polls_mut().iter_mut().for_each(|(_, poll)| {
+                    if poll.id == self.id {
+                        poll.keyboard_id = keyboard.id.clone()
+                    }
+                }); // hide show button
                 RequestResult::default()
                     .add(RequestKind::EditReplyMarkup(
                         cx.bot

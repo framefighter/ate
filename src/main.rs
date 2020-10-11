@@ -8,9 +8,8 @@ use teloxide::types::File as TgFile;
 use teloxide::{dispatching::*, prelude::*, types::*, utils::command::BotCommand, BotBuilder};
 use tokio::fs::File;
 
-mod db;
-use db::DBKeys;
 mod button;
+mod db;
 mod meal;
 use meal::Meal;
 mod command;
@@ -86,7 +85,7 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                     }
                 }
             } else {
-                dbg!(cx.update);
+                log::warn!("Unhandled update!");
             }
         })
         .await;
@@ -95,7 +94,7 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
 async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery>) {
     rx.map(|cx| (cx, state.clone()))
         .for_each_concurrent(None, |(cx, state)| async move {
-            let keyboards = state.read().keyboards.clone();
+            let keyboards = state.read().keyboards().clone();
             match cx.update.clone() {
                 CallbackQuery {
                     data: Some(data),
@@ -110,7 +109,7 @@ async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery
                                 if let Some(button) = keyboard.get_btn(button_id.to_string()) {
                                     button.kind.execute(&state, &cx).send(&state).await;
                                 }
-                                state.write().keyboards.remove(keyboard_id);
+                                state.write().keyboards_mut().remove(keyboard_id);
                             }
                             None => {
                                 RequestResult::default()
@@ -196,25 +195,17 @@ async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
                     _ => {}
                 }
             } else {
-                let meals_db: Vec<Option<Meal>> = state
-                    .read()
-                    .sh
-                    .db
-                    .liter(&DBKeys::Meals.to_string())
-                    .map(|item| item.get_item::<Meal>())
-                    .collect();
-                meals_db.iter().for_each(|item| {
+                let meals_db: Vec<Meal> = state.read().get_saved_meals();
+                meals_db.iter().for_each(|meal| {
                     let matcher = SkimMatcherV2::default();
-                    if let Some(meal) = item {
-                        let keyboard = Keyboard::new()
-                            .buttons(vec![button::delete_meal_button_row(meal.clone())])
-                            .save(&state);
-                        if matcher.fuzzy_match(&meal.name, &query).is_some() || query.len() == 0 {
-                            if meal.photos.len() > 0 {
-                                results.push(meal_photo(meal.clone(), keyboard));
-                            } else {
-                                results.push(meal_article(meal.clone(), keyboard));
-                            }
+                    let keyboard = Keyboard::new()
+                        .buttons(vec![button::delete_meal_button_row(meal.clone())])
+                        .save(&state);
+                    if matcher.fuzzy_match(&meal.name, &query).is_some() || query.len() == 0 {
+                        if meal.photos.len() > 0 {
+                            results.push(meal_photo(meal.clone(), keyboard));
+                        } else {
+                            results.push(meal_article(meal.clone(), keyboard));
                         }
                     }
                 });
@@ -236,8 +227,8 @@ async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
     rx.map(|cx| (cx, state.clone()))
         .for_each_concurrent(None, |(cx, state)| async move {
             let poll_opt = {
-                let s = state.read();
-                let opt = s.polls.iter().find(|(_, p)| p.poll_id == cx.update.id);
+                let polls = state.read().polls().clone();
+                let opt = polls.iter().find(|(_, p)| p.poll_id == cx.update.id);
                 if let Some((_, poll)) = opt {
                     Some(poll.clone())
                 } else {
@@ -245,13 +236,15 @@ async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
                 }
             };
             match poll_opt {
-                Some(mut poll) => {
+                Some(poll) => {
                     let meal_id = poll.meal_id.clone();
-                    let meals = state.read().meals.clone();
-                    match meals.get(&meal_id) {
+                    let meals = state.read().meals().clone();
+                    let meal_opt = meals.get(&meal_id).clone();
+                    match meal_opt {
                         Some(meal) => {
-                            poll.handle_votes(&state, &cx, meal.clone()).send(&state).await;
-                            state.write().polls.insert(poll.id.clone(), poll);
+                            poll.handle_votes(&state, &cx, meal.clone())
+                                .send(&state)
+                                .await;
                         }
                         None => {
                             RequestResult::default()
@@ -261,12 +254,13 @@ async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
                                 ))
                                 .send(&state)
                                 .await;
-                            log::info!("No meal with id {} found for poll: {:?}", meal_id, poll);
+                            state.write().polls_mut().remove(&poll.id.clone());
+                            log::warn!("No meal with id {} found for poll: {:?}", meal_id, poll);
                         }
                     }
                 }
                 None => {
-                    log::info!("No poll with id: {}", cx.update.id);
+                    log::warn!("No poll with id: {}", cx.update.id);
                 }
             }
         })
@@ -283,6 +277,7 @@ pub struct Config {
     password: String,
     token: String,
     name: String,
+    backup: bool,
 }
 
 async fn run() {

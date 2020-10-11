@@ -116,13 +116,15 @@ impl RequestResult {
                     }
                 }
                 RequestKind::StopPoll(send_request) => match send_request.send().await {
-                    Ok(_) => log::info!("Stop Poll"),
+                    Ok(_) => log::info!("Stopping Poll"),
                     Err(err) => log::warn!("Error Stop Poll: {}", err),
                 },
             }
         }
-        // dbg!(&state.read().meals.len());
-        // dbg!(&state.read().keyboards.len());
-        // dbg!(&state.read().polls.iter().map(|(_, p)| p.id.clone()));
+        state.write().save_tg();
+        log::debug!("Keyboards: {:?}", state.read().keyboards().len());
+        log::debug!("Meals: {:?}", state.read().meals().len());
+        log::debug!("Polls: {:?}", state.read().polls().len());
+
     }
 }

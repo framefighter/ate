@@ -4,7 +4,6 @@ use teloxide::utils::command::{BotCommand, ParseError};
 
 use crate::button;
 use crate::button::{Button, ButtonKind};
-use crate::db::DBKeys;
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
 use crate::request::{RequestKind, RequestResult};
@@ -85,11 +84,7 @@ impl Command {
                 password,
             } => {
                 request.message(cx.answer(if password == &config.password {
-                    state
-                        .write()
-                        .sh
-                        .db
-                        .ladd(&DBKeys::Whitelist.to_string(), &username);
+                    state.write().whitelist_user(username.clone());
                     format!("Added user {} to whitelist.\nEnjoy!", username)
                 } else {
                     format!("Wrong password: {}", password)
@@ -97,13 +92,7 @@ impl Command {
             }
             _ => {}
         }
-        let whitelist: Vec<_> = state
-            .read()
-            .sh
-            .db
-            .liter(&DBKeys::Whitelist.to_string())
-            .filter_map(|item| item.get_item::<String>())
-            .collect();
+        let whitelist: Vec<_> = state.read().get_whitelisted_users();
         match user {
             Some(User {
                 username: Some(username),
@@ -126,10 +115,7 @@ impl Command {
                                 cx.answer(format!("{}\n\nHow did it taste?", meal))
                                     .reply_markup(
                                         Keyboard::new()
-                                            .buttons(vec![button::rate_meal_button_row(
-                                                0,
-                                                meal.id,
-                                            )])
+                                            .buttons(vec![button::rate_meal_button_row(0, meal.id)])
                                             .save(&state)
                                             .inline_keyboard(),
                                     ),
@@ -162,22 +148,7 @@ impl Command {
                             );
                         }
                         Command::Get(meal_name) => {
-                            let mut meal_v: Vec<Meal> = vec![];
-                            state
-                                .read()
-                                .sh
-                                .db
-                                .liter(&DBKeys::Meals.to_string())
-                                .for_each(|item| {
-                                    let meal_opt = item.get_item::<Meal>();
-                                    if let Some(meal_f) = meal_opt {
-                                        if &meal_f.name == meal_name {
-                                            meal_v.push(meal_f);
-                                        }
-                                    }
-                                });
-                            dbg!(meal_v.clone());
-                            for meal in meal_v {
+                            for meal in state.read().get_saved_meals_by_name(meal_name.clone()) {
                                 if meal.photos.len() > 0 {
                                     request.add(RequestKind::Photo(
                                         cx.answer_photo(InputFile::FileId(
@@ -191,27 +162,14 @@ impl Command {
                             }
                         }
                         Command::Remove(meal_name) => {
-                            let mut meal_q: Option<Meal> = None;
-                            state
-                                .read()
-                                .sh
-                                .db
-                                .liter(&DBKeys::Meals.to_string())
-                                .for_each(|item| {
-                                    let meal_opt = item.get_item::<Meal>();
-                                    if let Some(meal_f) = meal_opt {
-                                        if &meal_f.name == meal_name {
-                                            meal_q = Some(meal_f);
-                                        }
-                                    }
-                                });
-                            if let Some(meal) = meal_q {
-                                if let Err(err) = state
-                                    .write()
-                                    .sh
-                                    .db
-                                    .lrem_value(&DBKeys::Meals.to_string(), &meal)
-                                {
+                            let meals = state.read().get_saved_meals_by_name(meal_name.clone());
+                            if meals.len() == 0 {
+                                request.message(
+                                    cx.answer(format!("No meal with name {} found!", meal_name)),
+                                );
+                            }
+                            for meal in meals {
+                                if let Err(err) = state.write().remove_saved_meal(&meal) {
                                     log::warn!("{}", err);
                                 }
                                 if meal.photos.len() > 0 {
@@ -224,45 +182,24 @@ impl Command {
                                 } else {
                                     request.message(cx.answer(format!("{}\n\nRemoved!", meal)));
                                 }
-                            } else {
-                                request.message(cx.answer(format!(
-                                    "{}\n\nMeal not found!",
-                                    meal_name.to_uppercase()
-                                )));
                             }
+                            
                         }
                         Command::Plan(days) => {
-                            let meal_btns: Vec<Button> = state
-                                .read()
-                                .sh
-                                .db
-                                .liter(&DBKeys::Meals.to_string())
-                                .filter_map(|item| {
-                                    let meal_opt = item.get_item::<Meal>();
-                                    if let Some(meal) = meal_opt {
-                                        Some(Button::new(
-                                            meal.name.clone(),
-                                            ButtonKind::DisplayMeal { meal: meal },
-                                        ))
-                                    } else {
-                                        None
-                                    }
+                            let meals = state.read().get_saved_meals();
+                            let meal_btns: Vec<Button> = meals
+                                .iter()
+                                .map(|meal| {
+                                    Button::new(
+                                        meal.name.clone(),
+                                        ButtonKind::DisplayMeal { meal: meal.clone() },
+                                    )
                                 })
                                 .collect();
-                            let weights: Vec<f64> = state
-                                .read()
-                                .sh
-                                .db
-                                .liter(&DBKeys::Meals.to_string())
-                                .filter_map(|item| {
-                                    let meal_opt = item.get_item::<Meal>();
-                                    if let Some(meal) = meal_opt {
-                                        if let Some(rating) = meal.rating {
-                                            return Some(rating as f64);
-                                        }
-                                    }
-                                    None
-                                })
+                            let weights: Vec<f64> = meals
+                                .iter()
+                                .filter_map(|meal| meal.rating)
+                                .map(|r| r as f64)
                                 .collect();
                             let choices = random_choice().random_choice_f64(
                                 &meal_btns,
@@ -288,19 +225,13 @@ impl Command {
                         Command::List => {
                             let meal_btns: Vec<Vec<Button>> = state
                                 .read()
-                                .sh
-                                .db
-                                .liter(&DBKeys::Meals.to_string())
-                                .filter_map(|item| {
-                                    let meal_opt = item.get_item::<Meal>();
-                                    if let Some(meal) = meal_opt {
-                                        Some(vec![Button::new(
-                                            meal.name.clone(),
-                                            ButtonKind::DisplayMeal { meal: meal },
-                                        )])
-                                    } else {
-                                        None
-                                    }
+                                .get_saved_meals()
+                                .iter()
+                                .map(|meal| {
+                                    vec![Button::new(
+                                        meal.name.clone(),
+                                        ButtonKind::DisplayMeal { meal: meal.clone() },
+                                    )]
                                 })
                                 .collect();
                             request.message(
