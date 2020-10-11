@@ -128,5 +128,5 @@ impl RequestResult {
             state.read().meals().len(),
             state.read().polls().len()
         );
-    }
+     }
 }
