@@ -35,6 +35,10 @@ save, create, plan, and admire your meals with telegram.
 - [X] create backups on start
 - [X] edit entries after creation
 
+##### bugs
+
+- [ ] Keyboards not getting removed consistently
+
 ### future releases
 
 - [ ] make db chat/group exclusive
