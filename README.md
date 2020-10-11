@@ -35,6 +35,11 @@ save, create, plan, and admire your meals with telegram.
 - [X] create backups on start
 - [X] edit entries after creation
 
+#### v0.4.1
+
+- [X] edit photos
+- [X] sending meal with photos (improved)
+
 ##### bugs
 
 - [ ] Keyboards not getting removed consistently
