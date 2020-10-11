@@ -1,5 +1,5 @@
 use random_choice::random_choice;
-use teloxide::types::{InputFile, User};
+use teloxide::types::User;
 use teloxide::utils::command::{BotCommand, ParseError};
 
 use crate::button;
@@ -244,7 +244,8 @@ impl Command {
                             );
                         }
                         Command::Get(meal_name) => {
-                            for meal in state.read().get_saved_meals_by_name(meal_name.clone()) {
+                            let meals = state.read().get_saved_meals_by_name(meal_name.clone());
+                            for meal in meals {
                                 request.add(
                                     meal.request(
                                         &cx,

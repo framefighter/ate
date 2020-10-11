@@ -1,6 +1,9 @@
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
-use teloxide::types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup, ReplyMarkup};
+use teloxide::types::{
+    ChatId, InlineKeyboardButton, InlineKeyboardMarkup, MediaKind, Message, MessageCommon,
+    MessageKind, ReplyMarkup,
+};
 
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
@@ -57,13 +60,34 @@ impl ButtonKind {
     ) -> RequestResult {
         let mut result = RequestResult::default();
         if let Some(msg) = &cx.update.message {
-            let mut edit =
-                cx.bot
-                    .edit_message_text(ChatId::Id(msg.chat_id()), msg.id, text.clone());
-            if let Some(keyboard) = reply_markup {
-                edit = edit.reply_markup(keyboard);
+            match msg {
+                Message {
+                    kind:
+                        MessageKind::Common(MessageCommon {
+                            media_kind: MediaKind::Photo(_),
+                            ..
+                        }),
+                    ..
+                } => {
+                    let mut edit = cx
+                        .bot
+                        .edit_message_caption(ChatId::Id(msg.chat_id()), msg.id)
+                        .caption(text);
+                    if let Some(keyboard) = reply_markup {
+                        edit = edit.reply_markup(keyboard);
+                    }
+                    result.add(RequestKind::EditCaption(edit));
+                }
+                _ => {
+                    let mut edit =
+                        cx.bot
+                            .edit_message_text(ChatId::Id(msg.chat_id()), msg.id, text.clone());
+                    if let Some(keyboard) = reply_markup {
+                        edit = edit.reply_markup(keyboard);
+                    }
+                    result.add(RequestKind::EditMessage(edit));
+                }
             }
-            result.add(RequestKind::EditMessage(edit));
         } else if let Some(id) = &cx.update.inline_message_id {
             let mut edit = cx.bot.edit_inline_message_text(id, text.clone());
             if let Some(keyboard) = reply_markup {

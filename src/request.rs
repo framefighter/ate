@@ -18,6 +18,7 @@ pub enum RequestKind {
     DeleteMessage(DeleteMessage),
     EditReplyMarkup(EditMessageReplyMarkup),
     CallbackAnswer(AnswerCallbackQuery),
+    EditCaption(EditMessageCaption),
 }
 
 #[derive(Clone)]
@@ -77,6 +78,10 @@ impl RequestResult {
                     Ok(_) => log::info!("Edit Inline Media"),
                     Err(err) => log::warn!("Edit Inline Media: {}", err),
                 },
+                RequestKind::EditCaption(send_request) => match send_request.send().await {
+                    Ok(_) => log::info!("Edit Caption"),
+                    Err(err) => log::warn!("Edit Caption: {}", err),
+                },
                 RequestKind::CallbackAnswer(send_request) => match send_request.send().await {
                     Ok(_) => log::info!("Callback Answer"),
                     Err(err) => log::warn!("Callback Answer: {}", err),
@@ -128,5 +133,5 @@ impl RequestResult {
             state.read().meals().len(),
             state.read().polls().len()
         );
-     }
+    }
 }
