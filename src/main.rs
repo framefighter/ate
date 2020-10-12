@@ -22,6 +22,8 @@ mod poll;
 mod request;
 use request::{RequestKind, RequestResult};
 
+pub const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
+
 pub type StateLock = Arc<RwLock<State>>;
 pub type ContextCallback = UpdateWithCx<CallbackQuery>;
 pub type ContextMessage = UpdateWithCx<Message>;

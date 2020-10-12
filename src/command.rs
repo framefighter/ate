@@ -7,7 +7,7 @@ use crate::button::{Button, ButtonKind};
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
 use crate::request::{RequestKind, RequestResult};
-use crate::{ContextMessage, StateLock};
+use crate::{ContextMessage, StateLock, VERSION};
 
 fn create_command(
     input: String,
@@ -160,8 +160,10 @@ pub enum Command {
         parse_with = "meal_name_command"
     )]
     Ref(String, String),
-    #[command(description = "Add Photo to meal.")]
+    #[command(description = "Add Photo to existing meal.")]
     Photo(String),
+    #[command(description = "Get bot version.")]
+    Version,
 }
 
 impl Command {
@@ -506,6 +508,11 @@ impl Command {
                         }
                         Command::Photo(_) => {
                             request.message(cx.answer(format!("Attach a photo to your message!")));
+                        }
+                        Command::Version => {
+                            request.message(
+                                cx.answer(format!("Bot version: {}", VERSION.unwrap_or("unknown"))),
+                            );
                         }
                     }
                 }
