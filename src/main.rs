@@ -47,6 +47,9 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
             } else if let Some(photos) = cx.update.photo() {
                 if let Some(last_photo) = photos.last() {
                     if let Some(caption) = cx.update.caption() {
+                        if !caption.starts_with("/") {
+                            return
+                        }
                         let parsed = Command::parse(caption, bot_name);
                         match parsed {
                             Ok(command) => match &command {
