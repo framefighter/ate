@@ -151,7 +151,7 @@ pub enum Command {
     )]
     Tag(String, Vec<String>),
     #[command(
-        description = "Add tags to existing meal.",
+        description = "Remove tags from existing meal.",
         parse_with = "tag_meal_command"
     )]
     TagRemove(String, Vec<String>),

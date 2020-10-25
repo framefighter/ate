@@ -160,16 +160,9 @@ impl ButtonKind {
                 },
                 None,
             ),
-            ButtonKind::DisplayMeal { meal } => Self::edit_callback_text(
-                &cx,
-                format!("{}", meal),
-                Some(
-                    Keyboard::new()
-                        .buttons(vec![delete_meal_button_row(meal)])
-                        .save(state)
-                        .inline_keyboard(),
-                ),
-            ),
+            ButtonKind::DisplayMeal { meal } => {
+                Self::edit_callback_text(&cx, format!("{}", meal), None)
+            }
             ButtonKind::PollRating { meal } => {
                 let mut result = RequestResult::default();
                 if let Some(message) = &cx.update.message {
@@ -289,14 +282,4 @@ pub fn save_poll_button_row(meal: &Meal) -> Vec<Button> {
         },
     );
     vec![save_button, cancel_button]
-}
-
-pub fn delete_meal_button_row(meal: &Meal) -> Vec<Button> {
-    let cancel_button = Button::new(
-        "Cancel".to_uppercase(),
-        ButtonKind::CancelMeal {
-            meal_id: meal.id.clone(),
-        },
-    );
-    vec![cancel_button]
 }

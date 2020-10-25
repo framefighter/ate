@@ -56,6 +56,13 @@ impl State {
             Ok(()) => log::info!("Saved state!"),
             Err(err) => log::warn!("{}", err),
         }
+        log::debug!(
+            "K: {} > {:#?} | M: {} | P: {}",
+            self.keyboards().len(),
+            self.keyboards(),
+            self.meals().len(),
+            self.polls().len()
+        );
     }
 
     pub fn get_tg(&self) -> Option<TgState> {

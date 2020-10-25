@@ -208,75 +208,37 @@ async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery
         .await;
 }
 
-fn meal_article(meal: Meal, keyboard: Keyboard) -> InlineQueryResult {
-    InlineQueryResult::Article(
-        InlineQueryResultArticle::new(
-            meal.id.to_string(),
-            meal.name.clone(),
-            InputMessageContent::Text(InputMessageContentText::new(format!("{}", meal))),
-        )
-        .description(format!("{}", meal))
-        .reply_markup(keyboard.inline_keyboard()),
-    )
-}
-
-fn meal_photo(meal: Meal, keyboard: Keyboard) -> InlineQueryResult {
+fn meal_inline(meal: Meal) -> InlineQueryResult {
     if let Some(photo) = meal.photos.get(0) {
         InlineQueryResult::CachedPhoto(
             InlineQueryResultCachedPhoto::new(meal.id.to_string(), photo.file_id.clone())
                 .caption(format!("{}", meal))
-                .title(meal.name)
-                .reply_markup(keyboard.inline_keyboard()),
+                .title(meal.name),
         )
     } else {
-        meal_article(meal, keyboard)
+        InlineQueryResult::Article(
+            InlineQueryResultArticle::new(
+                meal.id.to_string(),
+                meal.name.clone(),
+                InputMessageContent::Text(InputMessageContentText::new(format!("{}", meal))),
+            )
+            .description(format!("{}", meal)),
+        )
     }
 }
 
 async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
     rx.map(|cx| (cx, state.clone()))
         .for_each_concurrent(None, |(cx, state)| async move {
-            let bot_name = state.read().config.name.clone();
             let query = cx.update.query;
             let mut results: Vec<InlineQueryResult> = vec![];
-            if let Ok(command) = Command::parse(&query, bot_name) {
-                match command {
-                    Command::New {
-                        meal_name,
-                        rating,
-                        tags,
-                        url,
-                    } => {
-                        if false { // TODO meal with meal_name already exists
-                        } else {
-                            let mut meal = Meal::new(&meal_name);
-                            meal.rate(rating).tag(tags).url(url).save(&state);
-                            results.push(meal_article(
-                                meal.clone(),
-                                Keyboard::new()
-                                    .buttons(vec![button::save_meal_button_row(&meal.id)])
-                                    .save(&state),
-                            ));
-                        }
-                    }
-                    _ => {}
+            let meals_db: Vec<Meal> = state.read().get_saved_meals();
+            meals_db.iter().for_each(|meal| {
+                let matcher = SkimMatcherV2::default();
+                if matcher.fuzzy_match(&meal.name, &query).is_some() || query.len() == 0 {
+                    results.push(meal_inline(meal.clone()));
                 }
-            } else {
-                let meals_db: Vec<Meal> = state.read().get_saved_meals();
-                meals_db.iter().for_each(|meal| {
-                    let matcher = SkimMatcherV2::default();
-                    let keyboard = Keyboard::new()
-                        .buttons(vec![button::delete_meal_button_row(meal)])
-                        .save(&state);
-                    if matcher.fuzzy_match(&meal.name, &query).is_some() || query.len() == 0 {
-                        if meal.photos.len() > 0 {
-                            results.push(meal_photo(meal.clone(), keyboard));
-                        } else {
-                            results.push(meal_article(meal.clone(), keyboard));
-                        }
-                    }
-                });
-            }
+            });
             if let Err(err) = cx
                 .bot
                 .answer_inline_query(cx.update.id, results)
