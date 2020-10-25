@@ -15,7 +15,6 @@ use meal::Meal;
 mod command;
 use command::Command;
 mod keyboard;
-use keyboard::Keyboard;
 mod state;
 use state::State;
 mod poll;
@@ -33,20 +32,24 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
         .for_each_concurrent(None, |(cx, state)| async move {
             let bot_name = state.read().config.name.clone();
             if let Some(text) = cx.update.text() {
+                if !text.starts_with("/") {
+                    return
+                }
                 let parsed = Command::parse(text, bot_name);
-                if let Ok(command) = parsed {
-                    command.execute(&state, &cx).send(&state).await;
-                } else if let Err(err) = parsed {
-                    if let Err(err) = cx.answer(err.to_string()).send().await {
-                        log::warn!("{}", err);
+                match parsed {
+                    Ok(command) => command.execute(&state, &cx).send(&state).await,
+                    Err(err) => {
+                        if let Err(err) = cx.answer(err.to_string()).send().await {
+                            log::warn!("{}", err);
+                        }
                     }
                 }
             } else if let Some(photos) = cx.update.photo() {
                 if let Some(last_photo) = photos.last() {
                     if let Some(caption) = cx.update.caption() {
                         let parsed = Command::parse(caption, bot_name);
-                        if let Ok(command) = parsed {
-                            match &command {
+                        match parsed {
+                            Ok(command) => match &command {
                                 Command::New { .. } => {
                                     if let Ok(TgFile {
                                         file_path,
@@ -143,10 +146,11 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                                     }
                                 }
                                 _ => {}
-                            }
-                        } else if let Err(err) = parsed {
-                            if let Err(err) = cx.answer(err.to_string()).send().await {
-                                log::warn!("{}", err);
+                            },
+                            Err(err) => {
+                                if let Err(err) = cx.answer(err.to_string()).send().await {
+                                    log::warn!("{}", err);
+                                }
                             }
                         }
                     }
