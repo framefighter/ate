@@ -186,7 +186,7 @@ impl ButtonKind {
             ButtonKind::DisplayPlanMeal { meal, plan } => {
                 let mut request = RequestResult::default();
                 if let Some(message) = &cx.update.message {
-                    request.add(RequestKind::Message(
+                    request.message(
                         cx.bot
                             .send_message(message.chat_id(), format!("{}", meal))
                             .reply_markup(ReplyMarkup::InlineKeyboardMarkup(
@@ -198,7 +198,7 @@ impl ButtonKind {
                                     .save(state)
                                     .inline_keyboard(),
                             )),
-                    ));
+                    );
                 }
                 request
             }
@@ -281,10 +281,10 @@ impl ButtonKind {
             }
             ButtonKind::DisplayListMeal { meal } => {
                 let keyboard = Keyboard::new()
-                    .buttons(vec![vec![Button::new(
-                        "Back".to_string(),
-                        ButtonKind::ShowList,
-                    )]])
+                    .buttons(vec![vec![
+                        Button::new("Back".to_string(), ButtonKind::ShowList),
+                        Button::new("Exit".to_string(), ButtonKind::DeleteMessage),
+                    ]])
                     .save(state)
                     .inline_keyboard();
                 Self::edit_callback_text(&cx, format!("{}", meal), Some(keyboard))
@@ -425,12 +425,7 @@ pub fn save_meal_button_row(meal_id: &String) -> Vec<Button> {
             meal_id: meal_id.clone(),
         },
     );
-    let cancel_button = Button::new(
-        "Cancel".to_uppercase(),
-        ButtonKind::CancelMeal {
-            meal_id: meal_id.clone(),
-        },
-    );
+    let cancel_button = Button::new("Cancel".to_uppercase(), ButtonKind::DeleteMessage);
     vec![save_button, cancel_button]
 }
 
@@ -460,6 +455,7 @@ pub fn poll_plan_buttons(plan: Plan) -> Vec<Vec<Button>> {
                 ButtonKind::RerollPlan { plan: plan.clone() },
             ),
             Button::new("Clear".to_string(), ButtonKind::ClearVotes { plan }),
+            Button::new("Exit".to_string(), ButtonKind::DeleteMessage),
         ],
     ]
 }

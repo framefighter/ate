@@ -9,10 +9,10 @@ use crate::button;
 use crate::button::{poll_plan_buttons, Button, ButtonKind};
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
+use crate::plan::Plan;
 use crate::poll::PollKind;
 use crate::request::{RequestKind, RequestResult};
 use crate::{ContextMessage, StateLock, VERSION};
-use crate::plan::Plan;
 
 fn create_command(
     input: String,
@@ -194,9 +194,7 @@ impl Command {
                 ..
             }) => {
                 if !whitelist.contains(&username.clone()) {
-                    request.add(RequestKind::Message(
-                        cx.answer(format!("User not whitelisted!")),
-                    ));
+                    request.message(cx.answer(format!("User not whitelisted!")));
                     return request;
                 } else {
                     match command {
@@ -261,9 +259,7 @@ impl Command {
                                             Keyboard::new()
                                                 .buttons(vec![vec![Button::new(
                                                     "Cancel".to_uppercase(),
-                                                    ButtonKind::CancelMeal {
-                                                        meal_id: meal.id.clone(),
-                                                    },
+                                                    ButtonKind::DeleteMessage,
                                                 )]])
                                                 .save(&state),
                                         ),
@@ -282,7 +278,7 @@ impl Command {
                                 if let Err(err) = state.write().remove_saved_meal(&meal) {
                                     log::warn!("{}", err);
                                 }
-                                request.add(meal.request(&cx, None, None));
+                                request.add(meal.request(&cx, Some(format!("Deleted!")), None));
                             }
                         }
                         Command::Plan(days) => {
@@ -508,10 +504,11 @@ impl Command {
                 }
             }
             _ => {
-                request.add(RequestKind::Message(cx.answer(format!("No user found!"))));
+                request.message(cx.answer(format!("No user found!")));
                 return request;
             }
         }
+        request.add(RequestKind::DeleteMessage(cx.delete_message()));
         request
     }
 

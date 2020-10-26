@@ -7,7 +7,7 @@ use crate::StateLock;
 
 #[derive(Clone)]
 pub enum RequestKind {
-    Message(SendMessage),
+    Message(SendMessage, bool),
     Photo(SendPhoto),
     EditMessage(EditMessageText),
     EditInlineMessage(EditInlineMessageText),
@@ -19,7 +19,7 @@ pub enum RequestKind {
     EditReplyMarkup(EditMessageReplyMarkup),
     CallbackAnswer(AnswerCallbackQuery),
     EditCaption(EditMessageCaption),
-    Pin(PinChatMessage)
+    Pin(PinChatMessage),
 }
 
 #[derive(Clone)]
@@ -40,17 +40,19 @@ impl RequestResult {
     }
 
     pub fn message(&mut self, message: SendMessage) -> &mut Self {
-        self.requests.push(RequestKind::Message(message));
+        self.requests.push(RequestKind::Message(message, false));
         self
     }
 
     pub async fn send(&self, state: &StateLock) {
         for request in &self.requests {
             match request {
-                RequestKind::Message(send_request) => match send_request.send().await {
-                    Ok(_) => log::info!("Send Message"),
-                    Err(err) => log::warn!("Send Message: {}", err),
-                },
+                RequestKind::Message(send_request, notify) => {
+                    match send_request.clone().disable_notification(!notify).send().await {
+                        Ok(_) => log::info!("Send Message"),
+                        Err(err) => log::warn!("Send Message: {}", err),
+                    }
+                }
                 RequestKind::DeleteMessage(send_request) => match send_request.send().await {
                     Ok(_) => log::info!("Delete Message"),
                     Err(err) => log::warn!("Delete Message: {}", err),

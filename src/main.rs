@@ -9,12 +9,14 @@ use teloxide::{dispatching::*, prelude::*, types::*, utils::command::BotCommand,
 use tokio::fs::File;
 
 mod button;
+use button::{Button, ButtonKind};
 mod db;
 mod meal;
 use meal::Meal;
 mod command;
 use command::Command;
 mod keyboard;
+use keyboard::Keyboard;
 mod state;
 use state::State;
 mod poll;
@@ -54,7 +56,12 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                         let parsed = Command::parse(caption, bot_name);
                         match parsed {
                             Ok(command) => match &command {
-                                Command::New { .. } => {
+                                Command::New {
+                                    meal_name,
+                                    rating,
+                                    tags,
+                                    url,
+                                } => {
                                     if let Ok(TgFile {
                                         file_path,
                                         file_unique_id,
@@ -77,7 +84,33 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                                                 ),
                                                 Err(err) => log::warn!("{}", err),
                                             }
-                                            command.execute(&state, &cx).send(&state).await;
+                                            let mut meal = Meal::new(meal_name);
+                                            meal.rate(rating.clone())
+                                                .tag(tags.clone())
+                                                .url(url.clone())
+                                                .photo(last_photo.clone())
+                                                .save(&state);
+                                            RequestResult::default().add(
+                                                meal.request(
+                                                    &cx,
+                                                    None,
+                                                    Some(
+                                                        Keyboard::new()
+                                                            .buttons(vec![
+                                                                vec![Button::new(
+                                                                    "Rate with Poll".into(),
+                                                                    ButtonKind::PollRating {
+                                                                        meal: meal.clone(),
+                                                                    },
+                                                                )],
+                                                                button::save_meal_button_row(
+                                                                    &meal.id,
+                                                                ),
+                                                            ])
+                                                            .save(&state),
+                                                    ),
+                                                ),
+                                            ).send(&state).await;
                                         }
                                     }
                                 }
@@ -109,10 +142,10 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                                                 .get_saved_meals_by_name(meal_name.clone());
                                             if meals.len() == 0 {
                                                 RequestResult::default()
-                                                    .add(RequestKind::Message(cx.answer(format!(
+                                                    .message(cx.answer(format!(
                                                         "No meal with name {}",
                                                         meal_name
-                                                    ))))
+                                                    )))
                                                     .send(&state)
                                                     .await;
                                             }
