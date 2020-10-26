@@ -9,6 +9,7 @@ pub enum DBKeys {
     Meals,
     Whitelist,
     State,
+    Plans,
 }
 
 impl fmt::Display for DBKeys {
@@ -20,6 +21,7 @@ impl fmt::Display for DBKeys {
 pub struct StoreHandler {
     pub db: pickledb::PickleDb,
     pub state_db: pickledb::PickleDb,
+    pub plan_db: pickledb::PickleDb,
 }
 
 impl StoreHandler {
@@ -27,6 +29,7 @@ impl StoreHandler {
         let mut sh = StoreHandler {
             db: Self::create(DBKeys::Meals),
             state_db: Self::create_json(format!("database/{}.db", DBKeys::State)),
+            plan_db: Self::create(DBKeys::Plans),
         };
         sh.create_list(DBKeys::Whitelist);
         sh.create_list(DBKeys::Meals);

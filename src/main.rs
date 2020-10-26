@@ -20,6 +20,7 @@ use state::State;
 mod poll;
 mod request;
 use request::{RequestKind, RequestResult};
+mod plan;
 
 pub const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
 
@@ -33,7 +34,7 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
             let bot_name = state.read().config.name.clone();
             if let Some(text) = cx.update.text() {
                 if !text.starts_with("/") {
-                    return
+                    return;
                 }
                 let parsed = Command::parse(text, bot_name);
                 match parsed {
@@ -48,7 +49,7 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                 if let Some(last_photo) = photos.last() {
                     if let Some(caption) = cx.update.caption() {
                         if !caption.starts_with("/") {
-                            return
+                            return;
                         }
                         let parsed = Command::parse(caption, bot_name);
                         match parsed {
@@ -183,7 +184,7 @@ async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery
                                 if let Some(button) = keyboard.get_btn(button_id.to_string()) {
                                     button.kind.execute(&state, &cx).send(&state).await;
                                 }
-                                state.write().keyboards_mut().remove(keyboard_id);
+                                // state.write().keyboards_mut().remove(keyboard_id);
                             }
                             None => {
                                 RequestResult::default()
@@ -273,27 +274,7 @@ async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
             };
             match poll_opt {
                 Some(poll) => {
-                    let meal_id = poll.meal_id.clone();
-                    let meals = state.read().meals().clone();
-                    let meal_opt = meals.get(&meal_id).clone();
-                    match meal_opt {
-                        Some(meal) => {
-                            poll.handle_votes(&state, &cx, meal.clone())
-                                .send(&state)
-                                .await;
-                        }
-                        None => {
-                            RequestResult::default()
-                                .add(RequestKind::StopPoll(
-                                    cx.bot
-                                        .stop_poll(poll.chat_id.clone(), poll.message_id.clone()),
-                                ))
-                                .send(&state)
-                                .await;
-                            state.write().polls_mut().remove(&poll.id.clone());
-                            log::warn!("No meal with id {} found for poll: {:?}", meal_id, poll);
-                        }
-                    }
+                    poll.handle_votes(&state, &cx).send(&state).await;
                 }
                 None => {
                     log::warn!("No poll with id: {}", cx.update.id);

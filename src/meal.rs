@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use teloxide::types::{InputFile, PhotoSize, ReplyMarkup};
 
+use crate::button::{Button, ButtonKind};
 use crate::keyboard::Keyboard;
 use crate::request::RequestKind;
 use crate::{ContextMessage, StateLock};
@@ -121,3 +122,4 @@ impl fmt::Display for Meal {
         write!(f, "{}{}{}{}", name, rating, tags, url)
     }
 }
+

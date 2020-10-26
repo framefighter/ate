@@ -2,7 +2,7 @@ use teloxide::requests::*;
 use teloxide::types::*;
 
 use crate::meal::Meal;
-use crate::poll::Poll;
+use crate::poll::{Poll, PollKind};
 use crate::StateLock;
 
 #[derive(Clone)]
@@ -13,12 +13,13 @@ pub enum RequestKind {
     EditInlineMessage(EditInlineMessageText),
     EditMedia(EditMessageMedia),
     EditInlineMedia(EditInlineMessageMedia),
-    Poll(SendPoll, Meal, i32, String),
+    Poll(SendPoll, PollKind, String),
     StopPoll(StopPoll),
     DeleteMessage(DeleteMessage),
     EditReplyMarkup(EditMessageReplyMarkup),
     CallbackAnswer(AnswerCallbackQuery),
     EditCaption(EditMessageCaption),
+    Pin(PinChatMessage)
 }
 
 #[derive(Clone)]
@@ -86,7 +87,11 @@ impl RequestResult {
                     Ok(_) => log::info!("Callback Answer"),
                     Err(err) => log::warn!("Callback Answer: {}", err),
                 },
-                RequestKind::Poll(send_request, meal, reply_message_id, keyboard_id) => {
+                RequestKind::Pin(send_request) => match send_request.send().await {
+                    Ok(_) => log::info!("Pin Message"),
+                    Err(err) => log::warn!("Pin Message: {}", err),
+                },
+                RequestKind::Poll(send_request, poll_kind, keyboard_id) => {
                     match send_request.send().await {
                         Ok(message) => match message.clone() {
                             Message {
@@ -108,8 +113,7 @@ impl RequestResult {
                                     poll_id,
                                     chat_id,
                                     message_id,
-                                    *reply_message_id,
-                                    meal.id.clone(),
+                                    poll_kind.clone(),
                                     keyboard_id.clone(),
                                 )
                                 .save(&state);
