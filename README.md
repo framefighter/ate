@@ -52,6 +52,10 @@ save, create, plan, and admire your meals with telegram.
 - [X] Command messages will now be removed
 - [X] Bot messages will be removed more frequently (to keep group chats cleaner)
 
+#### v0.4.3
+
+- [X] `/plan` now shows current plan for this chat (can be changed with `/plan <days>` or **REROLL**)
+
 ##### bugs
 
 - [ ] Keyboards not getting removed consistently
