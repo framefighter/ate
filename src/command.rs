@@ -114,6 +114,19 @@ fn rate_meal_command(input: String) -> Result<(String, u8), ParseError> {
     ))
 }
 
+fn plan_command(input: String) -> Result<(Option<usize>,), ParseError> {
+    let args: Vec<_> = input.split(",").collect();
+    Ok((if let Some(rating_str) = args.get(0) {
+        if let Ok(rating) = rating_str.trim().parse::<usize>() {
+            Some(rating)
+        } else {
+            None
+        }
+    } else {
+        None
+    },))
+}
+
 #[derive(BotCommand, Debug, Clone, Serialize, Deserialize)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
 pub enum Command {
@@ -128,8 +141,11 @@ pub enum Command {
         tags: Option<Vec<String>>,
         url: Option<String>,
     },
-    #[command(description = "Plan meals for given days.", parse_with = "split")]
-    Plan(u8),
+    #[command(
+        description = "Plan meals for given days.",
+        parse_with = "plan_command"
+    )]
+    Plan(Option<usize>),
     #[command(description = "Get a saved meal's info.")]
     Get(String),
     #[command(description = "Remove a meal by name.")]
@@ -279,26 +295,48 @@ impl Command {
                                 request.add(meal.request(&cx, Some(format!("Deleted!")), None));
                             }
                         }
-                        Command::Plan(days) => {
+                        Command::Plan(days_opt) => {
                             let meals = state.read().get_saved_meals();
-                            let meal_plan = Plan::gen(meals, *days as usize);
+                            let meal_count = meals.len();
+                            let meal_plan = if let Some(days) = days_opt {
+                                Plan::gen(meals, *days)
+                            } else {
+                                state
+                                    .read()
+                                    .get_plan(cx.chat_id())
+                                    .unwrap_or(Plan::new(vec![]))
+                            };
                             state.write().save_plan(cx.chat_id(), meal_plan.clone());
                             let keyboard = Keyboard::new()
                                 .buttons(poll_plan_buttons(meal_plan.clone()))
                                 .save(&state);
-                            request.add(RequestKind::Poll(
-                                cx.bot
-                                    .send_poll(
+                            if meal_plan.days > 0 {
+                                request.add(RequestKind::Poll(
+                                    cx.bot
+                                        .send_poll(
+                                            cx.chat_id(),
+                                            format!("Plan:\n(Click to see details)"),
+                                            meal_plan.answers(),
+                                        )
+                                        .reply_markup(ReplyMarkup::InlineKeyboardMarkup(
+                                            keyboard.inline_keyboard(),
+                                        )),
+                                    PollKind::Plan { plan: meal_plan },
+                                    keyboard.id,
+                                ));
+                            } else {
+                                if meal_count < days_opt.unwrap_or(0) {
+                                    request.message(cx.bot.send_message(
                                         cx.chat_id(),
-                                        format!("Plan:\n(Click to see details)"),
-                                        meal_plan.answers(),
-                                    )
-                                    .reply_markup(ReplyMarkup::InlineKeyboardMarkup(
-                                        keyboard.inline_keyboard(),
-                                    )),
-                                PollKind::Plan { plan: meal_plan },
-                                keyboard.id,
-                            ));
+                                        format!("Not enough Meals to generate plan!"),
+                                    ));
+                                } else {
+                                    request.message(cx.bot.send_message(
+                                        cx.chat_id(),
+                                        format!("No Plan found, add with /plan <days>!"),
+                                    ));
+                                }
+                            }
                         }
 
                         Command::List => {

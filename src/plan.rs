@@ -31,9 +31,10 @@ impl Plan {
             .into_iter()
             .map(|m| m.clone())
             .collect();
+        let days = meal_plan.len();
         Self {
             meals: meal_plan,
-            days: amount,
+            days: days,
             id: nanoid!(),
         }
     }
