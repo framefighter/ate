@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use crate::db::{DBKeys, StoreHandler};
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
+use crate::plan::Plan;
 use crate::poll::Poll;
 use crate::Config;
 
@@ -56,6 +57,13 @@ impl State {
             Ok(()) => log::info!("Saved state!"),
             Err(err) => log::warn!("{}", err),
         }
+        // log::debug!(
+        //     "K: {} > {:#?} | M: {} | P: {}",
+        //     self.keyboards().len(),
+        //     self.keyboards(),
+        //     self.meals().len(),
+        //     self.polls().len()
+        // );
     }
 
     pub fn get_tg(&self) -> Option<TgState> {
@@ -150,5 +158,16 @@ impl State {
             .liter(&DBKeys::Whitelist.to_string())
             .filter_map(|item| item.get_item::<String>())
             .collect()
+    }
+
+    pub fn save_plan(&mut self, chat_id: i64, meal_plan: Plan) {
+        match self.sh.plan_db.set(&chat_id.to_string(), &meal_plan) {
+            Ok(()) => {}
+            Err(err) => log::warn!("{}", err),
+        }
+    }
+
+    pub fn get_plan(&self, chat_id: i64) -> Option<Vec<String>> {
+        self.sh.plan_db.get(&chat_id.to_string())
     }
 }

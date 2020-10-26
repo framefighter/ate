@@ -1,11 +1,14 @@
-use random_choice::random_choice;
-use teloxide::types::User;
+use serde::{Deserialize, Serialize};
+use teloxide::prelude::GetChatId;
+use teloxide::types::{ReplyMarkup, User};
 use teloxide::utils::command::{BotCommand, ParseError};
 
 use crate::button;
-use crate::button::{Button, ButtonKind};
+use crate::button::{poll_plan_buttons, Button, ButtonKind};
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
+use crate::plan::Plan;
+use crate::poll::PollKind;
 use crate::request::{RequestKind, RequestResult};
 use crate::{ContextMessage, StateLock, VERSION};
 
@@ -111,7 +114,7 @@ fn rate_meal_command(input: String) -> Result<(String, u8), ParseError> {
     ))
 }
 
-#[derive(BotCommand, Debug, Clone)]
+#[derive(BotCommand, Debug, Clone, Serialize, Deserialize)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
 pub enum Command {
     #[command(description = "List all commands.")]
@@ -151,7 +154,7 @@ pub enum Command {
     )]
     Tag(String, Vec<String>),
     #[command(
-        description = "Add tags to existing meal.",
+        description = "Remove tags from existing meal.",
         parse_with = "tag_meal_command"
     )]
     TagRemove(String, Vec<String>),
@@ -189,9 +192,7 @@ impl Command {
                 ..
             }) => {
                 if !whitelist.contains(&username.clone()) {
-                    request.add(RequestKind::Message(
-                        cx.answer(format!("User not whitelisted!")),
-                    ));
+                    request.message(cx.answer(format!("User not whitelisted!")));
                     return request;
                 } else {
                     match command {
@@ -256,9 +257,7 @@ impl Command {
                                             Keyboard::new()
                                                 .buttons(vec![vec![Button::new(
                                                     "Cancel".to_uppercase(),
-                                                    ButtonKind::CancelMeal {
-                                                        meal_id: meal.id.clone(),
-                                                    },
+                                                    ButtonKind::DeleteMessage,
                                                 )]])
                                                 .save(&state),
                                         ),
@@ -277,44 +276,29 @@ impl Command {
                                 if let Err(err) = state.write().remove_saved_meal(&meal) {
                                     log::warn!("{}", err);
                                 }
-                                request.add(meal.request(&cx, None, None));
+                                request.add(meal.request(&cx, Some(format!("Deleted!")), None));
                             }
                         }
                         Command::Plan(days) => {
                             let meals = state.read().get_saved_meals();
-                            let meal_btns: Vec<Button> = meals
-                                .iter()
-                                .map(|meal| {
-                                    Button::new(
-                                        meal.name.clone(),
-                                        ButtonKind::DisplayMeal { meal: meal.clone() },
+                            let meal_plan = Plan::gen(meals, *days as usize);
+                            state.write().save_plan(cx.chat_id(), meal_plan.clone());
+                            let keyboard = Keyboard::new()
+                                .buttons(poll_plan_buttons(meal_plan.clone()))
+                                .save(&state);
+                            request.add(RequestKind::Poll(
+                                cx.bot
+                                    .send_poll(
+                                        cx.chat_id(),
+                                        format!("Plan:\n(Click to see details)"),
+                                        meal_plan.answers(),
                                     )
-                                })
-                                .collect();
-                            let weights: Vec<f64> = meals
-                                .iter()
-                                .filter_map(|meal| meal.rating)
-                                .map(|r| r as f64)
-                                .collect();
-                            let choices = random_choice().random_choice_f64(
-                                &meal_btns,
-                                &weights,
-                                *days as usize,
-                            );
-                            request.message(
-                                cx.answer(format!("Plan:\n(Click to see details)"))
-                                    .reply_markup(
-                                        Keyboard::new()
-                                            .buttons(
-                                                choices
-                                                    .into_iter()
-                                                    .map(|btn| vec![btn.clone()])
-                                                    .collect(),
-                                            )
-                                            .save(&state)
-                                            .inline_keyboard(),
-                                    ),
-                            );
+                                    .reply_markup(ReplyMarkup::InlineKeyboardMarkup(
+                                        keyboard.inline_keyboard(),
+                                    )),
+                                PollKind::Plan { plan: meal_plan },
+                                keyboard.id,
+                            ));
                         }
 
                         Command::List => {
@@ -325,7 +309,7 @@ impl Command {
                                 .map(|meal| {
                                     vec![Button::new(
                                         meal.name.clone(),
-                                        ButtonKind::DisplayMeal { meal: meal.clone() },
+                                        ButtonKind::DisplayListMeal { meal: meal.clone() },
                                     )]
                                 })
                                 .collect();
@@ -518,10 +502,11 @@ impl Command {
                 }
             }
             _ => {
-                request.add(RequestKind::Message(cx.answer(format!("No user found!"))));
+                request.message(cx.answer(format!("No user found!")));
                 return request;
             }
         }
+        request.add(RequestKind::DeleteMessage(cx.delete_message()));
         request
     }
 

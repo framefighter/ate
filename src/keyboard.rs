@@ -60,4 +60,9 @@ impl Keyboard {
         }
         self
     }
+
+    pub fn remove(self, state: &StateLock) -> Self {
+        state.write().keyboards_mut().remove(&self.id);
+        self
+    }
 }

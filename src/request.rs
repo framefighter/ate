@@ -1,24 +1,24 @@
 use teloxide::requests::*;
 use teloxide::types::*;
 
-use crate::meal::Meal;
-use crate::poll::Poll;
+use crate::poll::{Poll, PollKind};
 use crate::StateLock;
 
 #[derive(Clone)]
 pub enum RequestKind {
-    Message(SendMessage),
+    Message(SendMessage, bool),
     Photo(SendPhoto),
     EditMessage(EditMessageText),
     EditInlineMessage(EditInlineMessageText),
     EditMedia(EditMessageMedia),
     EditInlineMedia(EditInlineMessageMedia),
-    Poll(SendPoll, Meal, i32, String),
+    Poll(SendPoll, PollKind, String),
     StopPoll(StopPoll),
     DeleteMessage(DeleteMessage),
     EditReplyMarkup(EditMessageReplyMarkup),
     CallbackAnswer(AnswerCallbackQuery),
     EditCaption(EditMessageCaption),
+    Pin(PinChatMessage),
 }
 
 #[derive(Clone)]
@@ -39,17 +39,24 @@ impl RequestResult {
     }
 
     pub fn message(&mut self, message: SendMessage) -> &mut Self {
-        self.requests.push(RequestKind::Message(message));
+        self.requests.push(RequestKind::Message(message, false));
         self
     }
 
     pub async fn send(&self, state: &StateLock) {
         for request in &self.requests {
             match request {
-                RequestKind::Message(send_request) => match send_request.send().await {
-                    Ok(_) => log::info!("Send Message"),
-                    Err(err) => log::warn!("Send Message: {}", err),
-                },
+                RequestKind::Message(send_request, notify) => {
+                    match send_request
+                        .clone()
+                        .disable_notification(!notify)
+                        .send()
+                        .await
+                    {
+                        Ok(_) => log::info!("Send Message"),
+                        Err(err) => log::warn!("Send Message: {}", err),
+                    }
+                }
                 RequestKind::DeleteMessage(send_request) => match send_request.send().await {
                     Ok(_) => log::info!("Delete Message"),
                     Err(err) => log::warn!("Delete Message: {}", err),
@@ -86,7 +93,11 @@ impl RequestResult {
                     Ok(_) => log::info!("Callback Answer"),
                     Err(err) => log::warn!("Callback Answer: {}", err),
                 },
-                RequestKind::Poll(send_request, meal, reply_message_id, keyboard_id) => {
+                RequestKind::Pin(send_request) => match send_request.send().await {
+                    Ok(_) => log::info!("Pin Message"),
+                    Err(err) => log::warn!("Pin Message: {}", err),
+                },
+                RequestKind::Poll(send_request, poll_kind, keyboard_id) => {
                     match send_request.send().await {
                         Ok(message) => match message.clone() {
                             Message {
@@ -108,8 +119,7 @@ impl RequestResult {
                                     poll_id,
                                     chat_id,
                                     message_id,
-                                    *reply_message_id,
-                                    meal.id.clone(),
+                                    poll_kind.clone(),
                                     keyboard_id.clone(),
                                 )
                                 .save(&state);
@@ -127,11 +137,5 @@ impl RequestResult {
             }
         }
         state.write().save_tg();
-        log::debug!(
-            "K: {} | M: {} | P: {}",
-            state.read().keyboards().len(),
-            state.read().meals().len(),
-            state.read().polls().len()
-        );
     }
 }

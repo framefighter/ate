@@ -63,20 +63,21 @@ impl Meal {
         sub_text: Option<String>,
         keyboard: Option<Keyboard>,
     ) -> RequestKind {
+        let message_text = format!(
+            "{}{}",
+            self,
+            if let Some(text) = sub_text {
+                format!("\n\n{}", text)
+            } else {
+                "".to_string()
+            }
+        );
         if self.photos.len() > 0 {
             let mut req = cx
                 .answer_photo(InputFile::FileId(
                     self.photos.last().unwrap().file_id.clone(),
                 ))
-                .caption(format!(
-                    "{}{}",
-                    self,
-                    if let Some(text) = sub_text {
-                        format!("\n\n{}", text)
-                    } else {
-                        "".to_string()
-                    }
-                ));
+                .caption(message_text);
             if let Some(keyboard_) = keyboard {
                 req = req.reply_markup(ReplyMarkup::InlineKeyboardMarkup(
                     keyboard_.inline_keyboard(),
@@ -84,13 +85,13 @@ impl Meal {
             }
             RequestKind::Photo(req)
         } else {
-            let mut req = cx.answer(format!("{}", self));
+            let mut req = cx.answer(message_text);
             if let Some(keyboard_) = keyboard {
                 req = req.reply_markup(ReplyMarkup::InlineKeyboardMarkup(
                     keyboard_.inline_keyboard(),
                 ));
             }
-            RequestKind::Message(req)
+            RequestKind::Message(req, false)
         }
     }
 }

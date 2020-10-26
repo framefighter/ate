@@ -9,6 +9,7 @@ use teloxide::{dispatching::*, prelude::*, types::*, utils::command::BotCommand,
 use tokio::fs::File;
 
 mod button;
+use button::{Button, ButtonKind};
 mod db;
 mod meal;
 use meal::Meal;
@@ -21,6 +22,7 @@ use state::State;
 mod poll;
 mod request;
 use request::{RequestKind, RequestResult};
+mod plan;
 
 pub const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
 
@@ -33,21 +35,33 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
         .for_each_concurrent(None, |(cx, state)| async move {
             let bot_name = state.read().config.name.clone();
             if let Some(text) = cx.update.text() {
+                if !text.starts_with("/") {
+                    return;
+                }
                 let parsed = Command::parse(text, bot_name);
-                if let Ok(command) = parsed {
-                    command.execute(&state, &cx).send(&state).await;
-                } else if let Err(err) = parsed {
-                    if let Err(err) = cx.answer(err.to_string()).send().await {
-                        log::warn!("{}", err);
+                match parsed {
+                    Ok(command) => command.execute(&state, &cx).send(&state).await,
+                    Err(err) => {
+                        if let Err(err) = cx.answer(err.to_string()).send().await {
+                            log::warn!("{}", err);
+                        }
                     }
                 }
             } else if let Some(photos) = cx.update.photo() {
                 if let Some(last_photo) = photos.last() {
                     if let Some(caption) = cx.update.caption() {
+                        if !caption.starts_with("/") {
+                            return;
+                        }
                         let parsed = Command::parse(caption, bot_name);
-                        if let Ok(command) = parsed {
-                            match &command {
-                                Command::New { .. } => {
+                        match parsed {
+                            Ok(command) => match &command {
+                                Command::New {
+                                    meal_name,
+                                    rating,
+                                    tags,
+                                    url,
+                                } => {
                                     if let Ok(TgFile {
                                         file_path,
                                         file_unique_id,
@@ -70,7 +84,36 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                                                 ),
                                                 Err(err) => log::warn!("{}", err),
                                             }
-                                            command.execute(&state, &cx).send(&state).await;
+                                            let mut meal = Meal::new(meal_name);
+                                            meal.rate(rating.clone())
+                                                .tag(tags.clone())
+                                                .url(url.clone())
+                                                .photo(last_photo.clone())
+                                                .save(&state);
+                                            RequestResult::default()
+                                                .add(
+                                                    meal.request(
+                                                        &cx,
+                                                        None,
+                                                        Some(
+                                                            Keyboard::new()
+                                                                .buttons(vec![
+                                                                    vec![Button::new(
+                                                                        "Rate with Poll".into(),
+                                                                        ButtonKind::PollRating {
+                                                                            meal: meal.clone(),
+                                                                        },
+                                                                    )],
+                                                                    button::save_meal_button_row(
+                                                                        &meal.id,
+                                                                    ),
+                                                                ])
+                                                                .save(&state),
+                                                        ),
+                                                    ),
+                                                )
+                                                .send(&state)
+                                                .await;
                                         }
                                     }
                                 }
@@ -102,10 +145,10 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                                                 .get_saved_meals_by_name(meal_name.clone());
                                             if meals.len() == 0 {
                                                 RequestResult::default()
-                                                    .add(RequestKind::Message(cx.answer(format!(
+                                                    .message(cx.answer(format!(
                                                         "No meal with name {}",
                                                         meal_name
-                                                    ))))
+                                                    )))
                                                     .send(&state)
                                                     .await;
                                             }
@@ -143,10 +186,11 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                                     }
                                 }
                                 _ => {}
-                            }
-                        } else if let Err(err) = parsed {
-                            if let Err(err) = cx.answer(err.to_string()).send().await {
-                                log::warn!("{}", err);
+                            },
+                            Err(err) => {
+                                if let Err(err) = cx.answer(err.to_string()).send().await {
+                                    log::warn!("{}", err);
+                                }
                             }
                         }
                     }
@@ -176,7 +220,7 @@ async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery
                                 if let Some(button) = keyboard.get_btn(button_id.to_string()) {
                                     button.kind.execute(&state, &cx).send(&state).await;
                                 }
-                                state.write().keyboards_mut().remove(keyboard_id);
+                                // state.write().keyboards_mut().remove(keyboard_id);
                             }
                             None => {
                                 RequestResult::default()
@@ -208,75 +252,37 @@ async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery
         .await;
 }
 
-fn meal_article(meal: Meal, keyboard: Keyboard) -> InlineQueryResult {
-    InlineQueryResult::Article(
-        InlineQueryResultArticle::new(
-            meal.id.to_string(),
-            meal.name.clone(),
-            InputMessageContent::Text(InputMessageContentText::new(format!("{}", meal))),
-        )
-        .description(format!("{}", meal))
-        .reply_markup(keyboard.inline_keyboard()),
-    )
-}
-
-fn meal_photo(meal: Meal, keyboard: Keyboard) -> InlineQueryResult {
+fn meal_inline(meal: Meal) -> InlineQueryResult {
     if let Some(photo) = meal.photos.get(0) {
         InlineQueryResult::CachedPhoto(
             InlineQueryResultCachedPhoto::new(meal.id.to_string(), photo.file_id.clone())
                 .caption(format!("{}", meal))
-                .title(meal.name)
-                .reply_markup(keyboard.inline_keyboard()),
+                .title(meal.name),
         )
     } else {
-        meal_article(meal, keyboard)
+        InlineQueryResult::Article(
+            InlineQueryResultArticle::new(
+                meal.id.to_string(),
+                meal.name.clone(),
+                InputMessageContent::Text(InputMessageContentText::new(format!("{}", meal))),
+            )
+            .description(format!("{}", meal)),
+        )
     }
 }
 
 async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
     rx.map(|cx| (cx, state.clone()))
         .for_each_concurrent(None, |(cx, state)| async move {
-            let bot_name = state.read().config.name.clone();
             let query = cx.update.query;
             let mut results: Vec<InlineQueryResult> = vec![];
-            if let Ok(command) = Command::parse(&query, bot_name) {
-                match command {
-                    Command::New {
-                        meal_name,
-                        rating,
-                        tags,
-                        url,
-                    } => {
-                        if false { // TODO meal with meal_name already exists
-                        } else {
-                            let mut meal = Meal::new(&meal_name);
-                            meal.rate(rating).tag(tags).url(url).save(&state);
-                            results.push(meal_article(
-                                meal.clone(),
-                                Keyboard::new()
-                                    .buttons(vec![button::save_meal_button_row(&meal.id)])
-                                    .save(&state),
-                            ));
-                        }
-                    }
-                    _ => {}
+            let meals_db: Vec<Meal> = state.read().get_saved_meals();
+            meals_db.iter().for_each(|meal| {
+                let matcher = SkimMatcherV2::default();
+                if matcher.fuzzy_match(&meal.name, &query).is_some() || query.len() == 0 {
+                    results.push(meal_inline(meal.clone()));
                 }
-            } else {
-                let meals_db: Vec<Meal> = state.read().get_saved_meals();
-                meals_db.iter().for_each(|meal| {
-                    let matcher = SkimMatcherV2::default();
-                    let keyboard = Keyboard::new()
-                        .buttons(vec![button::delete_meal_button_row(meal)])
-                        .save(&state);
-                    if matcher.fuzzy_match(&meal.name, &query).is_some() || query.len() == 0 {
-                        if meal.photos.len() > 0 {
-                            results.push(meal_photo(meal.clone(), keyboard));
-                        } else {
-                            results.push(meal_article(meal.clone(), keyboard));
-                        }
-                    }
-                });
-            }
+            });
             if let Err(err) = cx
                 .bot
                 .answer_inline_query(cx.update.id, results)
@@ -304,27 +310,7 @@ async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
             };
             match poll_opt {
                 Some(poll) => {
-                    let meal_id = poll.meal_id.clone();
-                    let meals = state.read().meals().clone();
-                    let meal_opt = meals.get(&meal_id).clone();
-                    match meal_opt {
-                        Some(meal) => {
-                            poll.handle_votes(&state, &cx, meal.clone())
-                                .send(&state)
-                                .await;
-                        }
-                        None => {
-                            RequestResult::default()
-                                .add(RequestKind::StopPoll(
-                                    cx.bot
-                                        .stop_poll(poll.chat_id.clone(), poll.message_id.clone()),
-                                ))
-                                .send(&state)
-                                .await;
-                            state.write().polls_mut().remove(&poll.id.clone());
-                            log::warn!("No meal with id {} found for poll: {:?}", meal_id, poll);
-                        }
-                    }
+                    poll.handle_votes(&state, &cx).send(&state).await;
                 }
                 None => {
                     log::warn!("No poll with id: {}", cx.update.id);
