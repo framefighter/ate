@@ -136,6 +136,5 @@ impl RequestResult {
                 },
             }
         }
-        state.write().save_tg();
     }
 }

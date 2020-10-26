@@ -25,49 +25,12 @@ pub struct TgState {
 impl State {
     pub fn new(config: Config) -> Self {
         let sh = StoreHandler::new(config.backup);
-        let tg_state_opt = sh.state_db.get::<TgState>(&DBKeys::State.to_string());
-        let tg = match tg_state_opt {
-            Some(tg_state) => {
-                log::info!("Found existing telegram state!");
-                tg_state
-            }
-            None => {
-                log::info!("Create new telegram state!");
-                TgState {
-                    keyboards: HashMap::new(),
-                    meals: HashMap::new(),
-                    polls: HashMap::new(),
-                }
-            }
+        let tg = TgState {
+            keyboards: HashMap::new(),
+            meals: HashMap::new(),
+            polls: HashMap::new(),
         };
         Self { sh, tg, config }
-    }
-
-    pub fn set_tg(&mut self, tg_state: TgState) -> &mut Self {
-        self.tg = tg_state;
-        self
-    }
-
-    pub fn save_tg(&mut self) {
-        match self
-            .sh
-            .state_db
-            .set(&DBKeys::State.to_string(), &self.tg.clone())
-        {
-            Ok(()) => log::info!("Saved state!"),
-            Err(err) => log::warn!("{}", err),
-        }
-        // log::debug!(
-        //     "K: {} > {:#?} | M: {} | P: {}",
-        //     self.keyboards().len(),
-        //     self.keyboards(),
-        //     self.meals().len(),
-        //     self.polls().len()
-        // );
-    }
-
-    pub fn get_tg(&self) -> Option<TgState> {
-        self.sh.state_db.get::<TgState>(&DBKeys::State.to_string())
     }
 
     pub fn meals(&self) -> &HashMap<String, Meal> {

@@ -7,8 +7,8 @@ use crate::meal::Meal;
 #[derive(Debug)]
 pub enum DBKeys {
     Meals,
+    MealsChat,
     Whitelist,
-    State,
     Plans,
 }
 
@@ -20,15 +20,15 @@ impl fmt::Display for DBKeys {
 
 pub struct StoreHandler {
     pub db: pickledb::PickleDb,
-    pub state_db: pickledb::PickleDb,
     pub plan_db: pickledb::PickleDb,
+    pub meal_db: pickledb::PickleDb,
 }
 
 impl StoreHandler {
     pub fn new(do_backup: bool) -> Self {
         let mut sh = StoreHandler {
             db: Self::create(DBKeys::Meals),
-            state_db: Self::create_json(format!("database/{}.db", DBKeys::State)),
+            meal_db: Self::create(DBKeys::MealsChat),
             plan_db: Self::create(DBKeys::Plans),
         };
         sh.create_list(DBKeys::Whitelist);
@@ -51,7 +51,8 @@ impl StoreHandler {
     }
 
     fn backup(&self, key: DBKeys) {
-        let mut db_backup = Self::create_json(format!("database/{}_backup_{}.db", key, nanoid!()));
+        let mut db_backup =
+            Self::create_json(format!("database/{}_backup_{}.db", key, nanoid!()), false);
         match db_backup.lcreate(&key.to_string()) {
             Ok(_) => {
                 log::info!("Backing up {}!", key);
@@ -88,13 +89,13 @@ impl StoreHandler {
         }
     }
 
-    fn create_json(path: String) -> PickleDb {
+    fn create_json(path: String, load: bool) -> PickleDb {
         let loaded_db = PickleDb::load(
             path.clone(),
             PickleDbDumpPolicy::AutoDump,
             SerializationMethod::Json,
         );
-        if loaded_db.is_ok() {
+        if loaded_db.is_ok() && load {
             log::info!("Found existing {} database!", path.clone());
             loaded_db.unwrap()
         } else {
