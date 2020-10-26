@@ -40,6 +40,18 @@ save, create, plan, and admire your meals with telegram.
 - [X] edit photos
 - [X] sending meal with photos (improved)
 
+#### v0.4.2
+
+- [X] Ignore messages not starting with "/"
+- [X] Poll instead of button list in plan
+- [X] "Back" buttons for meals in list and plan
+- [X] Pinnable Messages (only groups)
+- [X] New meals now save photos correctly
+- [X] Messages will now be sent silently
+- [X] Fixed meal request not displaying sub text
+- [X] Command messages will now be removed
+- [X] Bot messages will be removed more frequently (to keep group chats cleaner)
+
 ##### bugs
 
 - [ ] Keyboards not getting removed consistently
