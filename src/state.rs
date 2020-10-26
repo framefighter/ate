@@ -167,7 +167,7 @@ impl State {
         }
     }
 
-    pub fn get_plan(&self, chat_id: i64) -> Option<Vec<String>> {
+    pub fn get_plan(&self, chat_id: i64) -> Option<Plan> {
         self.sh.plan_db.get(&chat_id.to_string())
     }
 }
