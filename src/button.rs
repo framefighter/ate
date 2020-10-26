@@ -1,11 +1,9 @@
 use nanoid::nanoid;
-use random_choice::random_choice;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use teloxide::dispatching::UpdateWithCx;
 use teloxide::types::{
     ChatId, InlineKeyboardButton, InlineKeyboardMarkup, MediaKind, Message, MessageCommon,
-    MessageKind, ReplyMarkup, Update, UpdateKind,
+    MessageKind, ReplyMarkup,
 };
 
 use crate::command::Command;
@@ -183,7 +181,7 @@ impl ButtonKind {
                 },
                 None,
             ),
-            ButtonKind::DisplayPlanMeal { meal, plan } => {
+            ButtonKind::DisplayPlanMeal { meal, .. } => {
                 let mut request = RequestResult::default();
                 if let Some(message) = &cx.update.message {
                     request.message(

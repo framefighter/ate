@@ -1,6 +1,4 @@
-use random_choice::random_choice;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use teloxide::prelude::GetChatId;
 use teloxide::types::{ReplyMarkup, User};
 use teloxide::utils::command::{BotCommand, ParseError};

@@ -90,27 +90,30 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                                                 .url(url.clone())
                                                 .photo(last_photo.clone())
                                                 .save(&state);
-                                            RequestResult::default().add(
-                                                meal.request(
-                                                    &cx,
-                                                    None,
-                                                    Some(
-                                                        Keyboard::new()
-                                                            .buttons(vec![
-                                                                vec![Button::new(
-                                                                    "Rate with Poll".into(),
-                                                                    ButtonKind::PollRating {
-                                                                        meal: meal.clone(),
-                                                                    },
-                                                                )],
-                                                                button::save_meal_button_row(
-                                                                    &meal.id,
-                                                                ),
-                                                            ])
-                                                            .save(&state),
+                                            RequestResult::default()
+                                                .add(
+                                                    meal.request(
+                                                        &cx,
+                                                        None,
+                                                        Some(
+                                                            Keyboard::new()
+                                                                .buttons(vec![
+                                                                    vec![Button::new(
+                                                                        "Rate with Poll".into(),
+                                                                        ButtonKind::PollRating {
+                                                                            meal: meal.clone(),
+                                                                        },
+                                                                    )],
+                                                                    button::save_meal_button_row(
+                                                                        &meal.id,
+                                                                    ),
+                                                                ])
+                                                                .save(&state),
+                                                        ),
                                                     ),
-                                                ),
-                                            ).send(&state).await;
+                                                )
+                                                .send(&state)
+                                                .await;
                                         }
                                     }
                                 }

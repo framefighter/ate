@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use crate::db::{DBKeys, StoreHandler};
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
+use crate::plan::Plan;
 use crate::poll::Poll;
 use crate::Config;
-use crate::plan::Plan;
 
 pub struct State {
     sh: StoreHandler,

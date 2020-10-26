@@ -1,7 +1,6 @@
 use teloxide::requests::*;
 use teloxide::types::*;
 
-use crate::meal::Meal;
 use crate::poll::{Poll, PollKind};
 use crate::StateLock;
 
@@ -48,7 +47,12 @@ impl RequestResult {
         for request in &self.requests {
             match request {
                 RequestKind::Message(send_request, notify) => {
-                    match send_request.clone().disable_notification(!notify).send().await {
+                    match send_request
+                        .clone()
+                        .disable_notification(!notify)
+                        .send()
+                        .await
+                    {
                         Ok(_) => log::info!("Send Message"),
                         Err(err) => log::warn!("Send Message: {}", err),
                     }

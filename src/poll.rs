@@ -6,10 +6,9 @@ use teloxide::types::{ChatId, Poll as TgPoll};
 use crate::button;
 use crate::button::{Button, ButtonKind};
 use crate::keyboard::Keyboard;
-use crate::meal::Meal;
+use crate::plan::Plan;
 use crate::request::{RequestKind, RequestResult};
 use crate::StateLock;
-use crate::plan::Plan;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PollKind {
@@ -200,7 +199,7 @@ impl Poll {
                     }
                 }
             }
-            PollKind::Plan { plan } => RequestResult::default(),
+            PollKind::Plan { .. } => RequestResult::default(),
         }
     }
 }
