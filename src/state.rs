@@ -144,22 +144,10 @@ impl State {
             .collect()
     }
 
-    pub fn get_saved_meals_by_name(&self, meal_name: String) -> Vec<Meal> {
-        self.sh
-            .meal_db
-            .iter()
-            .filter_map(|item| match item.get_value::<Meal>() {
-                Some(meal) => match &meal {
-                    Meal { name, .. } => {
-                        if name.to_uppercase() == meal_name.to_uppercase() {
-                            Some(meal)
-                        } else {
-                            None
-                        }
-                    }
-                },
-                _ => None,
-            })
+    pub fn get_saved_meals_by_name(&self, chat_id: i64, meal_name: String) -> Vec<Meal> {
+        self.get_saved_meals(chat_id)
+            .into_iter()
+            .filter(|meal| meal.name.to_uppercase() == meal_name.to_uppercase())
             .collect()
     }
 

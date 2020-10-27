@@ -265,7 +265,9 @@ impl Command {
                             );
                         }
                         Command::Get(meal_name) => {
-                            let meals = state.read().get_saved_meals_by_name(meal_name.clone());
+                            let meals = state
+                                .read()
+                                .get_saved_meals_by_name(cx.chat_id(), meal_name.clone());
                             for meal in meals {
                                 request.add(
                                     meal.request(
@@ -286,7 +288,9 @@ impl Command {
                             }
                         }
                         Command::Remove(meal_name) => {
-                            let meals = state.read().get_saved_meals_by_name(meal_name.clone());
+                            let meals = state
+                                .read()
+                                .get_saved_meals_by_name(cx.chat_id(), meal_name.clone());
                             if meals.len() == 0 {
                                 request.message(
                                     cx.answer(format!("No meal with name {} found!", meal_name)),
@@ -380,7 +384,9 @@ impl Command {
                             }
                         }
                         Command::Rename(meal_name, new_name) => {
-                            let meals = state.read().get_saved_meals_by_name(meal_name.clone());
+                            let meals = state
+                                .read()
+                                .get_saved_meals_by_name(cx.chat_id(), meal_name.clone());
                             if meals.len() == 0 {
                                 request
                                     .message(cx.answer(format!("No meal with name {}", meal_name)));
@@ -399,7 +405,9 @@ impl Command {
                             }
                         }
                         Command::Rate(meal_name, new_rating) => {
-                            let meals = state.read().get_saved_meals_by_name(meal_name.clone());
+                            let meals = state
+                                .read()
+                                .get_saved_meals_by_name(cx.chat_id(), meal_name.clone());
                             if meals.len() == 0 {
                                 request
                                     .message(cx.answer(format!("No meal with name {}", meal_name)));
@@ -425,7 +433,9 @@ impl Command {
                             }
                         }
                         Command::Tag(meal_name, new_tags) => {
-                            let meals = state.read().get_saved_meals_by_name(meal_name.clone());
+                            let meals = state
+                                .read()
+                                .get_saved_meals_by_name(cx.chat_id(), meal_name.clone());
                             if meals.len() == 0 {
                                 request
                                     .message(cx.answer(format!("No meal with name {}", meal_name)));
@@ -447,7 +457,9 @@ impl Command {
                             }
                         }
                         Command::TagRemove(meal_name, rem_tags) => {
-                            let meals = state.read().get_saved_meals_by_name(meal_name.clone());
+                            let meals = state
+                                .read()
+                                .get_saved_meals_by_name(cx.chat_id(), meal_name.clone());
                             if meals.len() == 0 {
                                 request
                                     .message(cx.answer(format!("No meal with name {}", meal_name)));
@@ -477,7 +489,9 @@ impl Command {
                             }
                         }
                         Command::Ref(meal_name, new_reference) => {
-                            let meals = state.read().get_saved_meals_by_name(meal_name.clone());
+                            let meals = state
+                                .read()
+                                .get_saved_meals_by_name(cx.chat_id(), meal_name.clone());
                             if meals.len() == 0 {
                                 request
                                     .message(cx.answer(format!("No meal with name {}", meal_name)));
@@ -562,7 +576,7 @@ impl PhotoCommand {
                             tags,
                             url,
                         } => {
-                            for photo in photos {
+                            for photo in photos.last() {
                                 if let Ok(TgFile {
                                     file_path,
                                     file_unique_id,
@@ -617,7 +631,7 @@ impl PhotoCommand {
                             }
                         }
                         PhotoCommand::Photo(meal_name) => {
-                            for photo in photos {
+                            for photo in photos.last() {
                                 if let Ok(TgFile {
                                     file_path,
                                     file_unique_id,
@@ -637,8 +651,10 @@ impl PhotoCommand {
                                             ),
                                             Err(err) => log::warn!("{}", err),
                                         }
-                                        let meals =
-                                            state.read().get_saved_meals_by_name(meal_name.clone());
+                                        let meals = state.read().get_saved_meals_by_name(
+                                            cx.chat_id(),
+                                            meal_name.clone(),
+                                        );
                                         if meals.len() == 0 {
                                             RequestResult::default()
                                                 .message(cx.answer(format!(
