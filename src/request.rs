@@ -4,7 +4,7 @@ use teloxide::types::*;
 use crate::poll::{Poll, PollKind};
 use crate::StateLock;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum RequestKind {
     Message(SendMessage, bool),
     Photo(SendPhoto),
@@ -21,7 +21,7 @@ pub enum RequestKind {
     Pin(PinChatMessage),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RequestResult {
     pub requests: Vec<RequestKind>,
 }
@@ -107,14 +107,10 @@ impl RequestResult {
                                         ..
                                     }),
                                 id: message_id,
-                                chat:
-                                    Chat {
-                                        id: chat_id_raw, ..
-                                    },
+                                chat: Chat { id: chat_id, .. },
                                 ..
                             } => {
                                 let poll_id = poll.id;
-                                let chat_id = ChatId::Id(chat_id_raw);
                                 Poll::new(
                                     poll_id,
                                     chat_id,
@@ -136,5 +132,9 @@ impl RequestResult {
                 },
             }
         }
+        log::debug!("K: {:?}", state.read().tg.keyboards.len());
+        log::debug!("P: {:?}", state.read().tg.polls.len());
+        log::debug!("M: {:?}", state.read().tg.meals.len());
+
     }
 }

@@ -4,19 +4,15 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::sync::Arc;
-use teloxide::types::File as TgFile;
 use teloxide::{dispatching::*, prelude::*, types::*, utils::command::BotCommand, BotBuilder};
-use tokio::fs::File;
 
 mod button;
-use button::{Button, ButtonKind};
 mod db;
 mod meal;
 use meal::Meal;
 mod command;
-use command::Command;
+use command::{Command, PhotoCommand};
 mod keyboard;
-use keyboard::Keyboard;
 mod state;
 use state::State;
 mod poll;
@@ -48,149 +44,16 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                     }
                 }
             } else if let Some(photos) = cx.update.photo() {
-                if let Some(last_photo) = photos.last() {
-                    if let Some(caption) = cx.update.caption() {
-                        if !caption.starts_with("/") {
-                            return;
-                        }
-                        let parsed = Command::parse(caption, bot_name);
-                        match parsed {
-                            Ok(command) => match &command {
-                                Command::New {
-                                    meal_name,
-                                    rating,
-                                    tags,
-                                    url,
-                                } => {
-                                    if let Ok(TgFile {
-                                        file_path,
-                                        file_unique_id,
-                                        file_size,
-                                        ..
-                                    }) = cx.bot.get_file(last_photo.file_id.clone()).send().await
-                                    {
-                                        let file_r = File::create(format!(
-                                            "./images/{}.png",
-                                            file_unique_id
-                                        ))
-                                        .await;
-                                        if let Ok(mut file) = file_r {
-                                            match cx.bot.download_file(&file_path, &mut file).await
-                                            {
-                                                Ok(_) => log::info!(
-                                                    "Downloading File: {} | Size: {} ...",
-                                                    file_path,
-                                                    file_size
-                                                ),
-                                                Err(err) => log::warn!("{}", err),
-                                            }
-                                            let mut meal = Meal::new(meal_name);
-                                            meal.rate(rating.clone())
-                                                .tag(tags.clone())
-                                                .url(url.clone())
-                                                .photo(last_photo.clone())
-                                                .save(&state);
-                                            RequestResult::default()
-                                                .add(
-                                                    meal.request(
-                                                        &cx,
-                                                        None,
-                                                        Some(
-                                                            Keyboard::new()
-                                                                .buttons(vec![
-                                                                    vec![Button::new(
-                                                                        "Rate with Poll".into(),
-                                                                        ButtonKind::PollRating {
-                                                                            meal: meal.clone(),
-                                                                        },
-                                                                    )],
-                                                                    button::save_meal_button_row(
-                                                                        &meal.id,
-                                                                    ),
-                                                                ])
-                                                                .save(&state),
-                                                        ),
-                                                    ),
-                                                )
-                                                .send(&state)
-                                                .await;
-                                        }
-                                    }
-                                }
-                                Command::Photo(meal_name) => {
-                                    if let Ok(TgFile {
-                                        file_path,
-                                        file_unique_id,
-                                        file_size,
-                                        ..
-                                    }) = cx.bot.get_file(last_photo.file_id.clone()).send().await
-                                    {
-                                        let file_r = File::create(format!(
-                                            "./images/{}.png",
-                                            file_unique_id
-                                        ))
-                                        .await;
-                                        if let Ok(mut file) = file_r {
-                                            match cx.bot.download_file(&file_path, &mut file).await
-                                            {
-                                                Ok(_) => log::info!(
-                                                    "Downloading File: {} | Size: {} ...",
-                                                    file_path,
-                                                    file_size
-                                                ),
-                                                Err(err) => log::warn!("{}", err),
-                                            }
-                                            let meals = state
-                                                .read()
-                                                .get_saved_meals_by_name(meal_name.clone());
-                                            if meals.len() == 0 {
-                                                RequestResult::default()
-                                                    .message(cx.answer(format!(
-                                                        "No meal with name {}",
-                                                        meal_name
-                                                    )))
-                                                    .send(&state)
-                                                    .await;
-                                            }
-                                            for meal in meals {
-                                                let res = state.write().remove_saved_meal(&meal);
-                                                match res {
-                                                    Ok(rem) => {
-                                                        if rem {
-                                                            let mut new_meal = meal.clone();
-                                                            new_meal.photo(last_photo.clone());
-                                                            state.write().save_meal(&new_meal);
-                                                            RequestResult::default()
-                                                                .add(
-                                                                    new_meal.request(
-                                                                        &cx,
-                                                                        Some(
-                                                                            "Saved new photo!"
-                                                                                .to_string(),
-                                                                        ),
-                                                                        None,
-                                                                    ),
-                                                                )
-                                                                .send(&state)
-                                                                .await;
-                                                            log::info!(
-                                                                "Added photo to meal {}",
-                                                                meal_name,
-                                                            );
-                                                        }
-                                                    }
-                                                    Err(err) => log::warn!("{}", err),
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                _ => {}
-                            },
-                            Err(err) => {
-                                if let Err(err) = cx.answer(err.to_string()).send().await {
-                                    log::warn!("{}", err);
-                                }
+                if let Some(caption) = cx.update.caption() {
+                    if !caption.starts_with("/") {
+                        return;
+                    }
+                    let parsed = PhotoCommand::parse(caption, bot_name);
+                    match parsed {
+                        Ok(command) => command.execute(photos, &state, &cx).await,
+                        Err(err) => {
+                            if let Err(err) = cx.answer(err.to_string()).send().await {
+                                log::warn!("{}", err);
                             }
                         }
                     }
@@ -205,7 +68,6 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
 async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery>) {
     rx.map(|cx| (cx, state.clone()))
         .for_each_concurrent(None, |(cx, state)| async move {
-            let keyboards = state.read().keyboards().clone();
             match cx.update.clone() {
                 CallbackQuery {
                     data: Some(data),
@@ -215,31 +77,37 @@ async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery
                 } => {
                     let ids: Vec<_> = data.split(".").collect();
                     match *ids {
-                        [keyboard_id, button_id] => match keyboards.get(keyboard_id) {
-                            Some(keyboard) => {
-                                if let Some(button) = keyboard.get_btn(button_id.to_string()) {
-                                    button.kind.execute(&state, &cx).send(&state).await;
+                        [keyboard_id, button_id] => {
+                            let keyboard_opt = state
+                                .write()
+                                .find_keyboard(message.chat_id(), keyboard_id.to_string())
+                                .cloned();
+                            match keyboard_opt {
+                                Some(keyboard) => {
+                                    if let Some(button) = keyboard.get_btn(button_id.to_string()) {
+                                        button.kind.execute(&state, &cx).send(&state).await;
+                                    }
+                                    // state.write().keyboards_mut().remove(keyboard_id);
                                 }
-                                // state.write().keyboards_mut().remove(keyboard_id);
+                                None => {
+                                    RequestResult::default()
+                                        .add(RequestKind::CallbackAnswer(
+                                            cx.bot
+                                                .answer_callback_query(id)
+                                                .text("Outdated buttons!\nPlease rerun command.")
+                                                .show_alert(true),
+                                        ))
+                                        .add(RequestKind::EditReplyMarkup(
+                                            cx.bot.edit_message_reply_markup(
+                                                message.chat_id(),
+                                                message.id,
+                                            ),
+                                        ))
+                                        .send(&state)
+                                        .await;
+                                }
                             }
-                            None => {
-                                RequestResult::default()
-                                    .add(RequestKind::CallbackAnswer(
-                                        cx.bot
-                                            .answer_callback_query(id)
-                                            .text("Outdated buttons!\nPlease rerun command.")
-                                            .show_alert(true),
-                                    ))
-                                    .add(RequestKind::EditReplyMarkup(
-                                        cx.bot.edit_message_reply_markup(
-                                            message.chat_id(),
-                                            message.id,
-                                        ),
-                                    ))
-                                    .send(&state)
-                                    .await;
-                            }
-                        },
+                        }
                         [..] => {}
                     }
                 }
@@ -276,7 +144,7 @@ async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
         .for_each_concurrent(None, |(cx, state)| async move {
             let query = cx.update.query;
             let mut results: Vec<InlineQueryResult> = vec![];
-            let meals_db: Vec<Meal> = state.read().get_saved_meals();
+            let meals_db: Vec<Meal> = state.read().get_all_saved_meals();
             meals_db.iter().for_each(|meal| {
                 let matcher = SkimMatcherV2::default();
                 if matcher.fuzzy_match(&meal.name, &query).is_some() || query.len() == 0 {
@@ -299,17 +167,12 @@ async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
 async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
     rx.map(|cx| (cx, state.clone()))
         .for_each_concurrent(None, |(cx, state)| async move {
-            let poll_opt = {
-                let polls = state.read().polls().clone();
-                let opt = polls.iter().find(|(_, p)| p.poll_id == cx.update.id);
-                if let Some((_, poll)) = opt {
-                    Some(poll.clone())
-                } else {
-                    None
-                }
-            };
+            let poll_opt = state
+                .write()
+                .find_poll_by_poll_id(cx.update.id.clone())
+                .cloned();
             match poll_opt {
-                Some(poll) => {
+                Some(mut poll) => {
                     poll.handle_votes(&state, &cx).send(&state).await;
                 }
                 None => {

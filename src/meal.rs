@@ -15,11 +15,15 @@ pub struct Meal {
     pub url: Option<String>,
     pub tags: Vec<String>,
     pub photos: Vec<PhotoSize>,
+    pub chat_id: i64,
+    pub user_id: i32,
 }
 
 impl Meal {
-    pub fn new(name: &String) -> Self {
+    pub fn new(name: &String, chat_id: i64, user_id: i32,) -> Self {
         Self {
+            chat_id,
+            user_id,
             id: nanoid!(),
             name: name.to_string(),
             rating: None,
@@ -50,10 +54,7 @@ impl Meal {
     }
 
     pub fn save(&self, state: &StateLock) -> &Self {
-        state
-            .write()
-            .meals_mut()
-            .insert(self.id.clone(), self.clone());
+        state.write().add_meal(self.chat_id, self.clone());
         self
     }
 

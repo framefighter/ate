@@ -1,7 +1,7 @@
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use teloxide::dispatching::UpdateWithCx;
-use teloxide::types::{ChatId, Poll as TgPoll};
+use teloxide::types::Poll as TgPoll;
 
 use crate::button;
 use crate::button::{Button, ButtonKind};
@@ -25,7 +25,7 @@ pub enum PollKind {
 pub struct Poll {
     pub id: String,
     pub poll_id: String,
-    pub chat_id: ChatId,
+    pub chat_id: i64,
     pub message_id: i32,
     pub poll_kind: PollKind,
     pub is_canceled: bool,
@@ -35,7 +35,7 @@ pub struct Poll {
 impl Poll {
     pub fn new(
         poll_id: String,
-        chat_id: ChatId,
+        chat_id: i64,
         message_id: i32,
         poll_kind: PollKind,
         keyboard_id: String,
@@ -52,24 +52,23 @@ impl Poll {
     }
 
     pub fn save(self, state: &StateLock) -> Self {
-        state
-            .write()
-            .polls_mut()
-            .insert(self.id.clone(), self.clone());
+        state.write().add_poll(self.chat_id, self.clone());
         self
     }
 
-    pub fn handle_votes(&self, state: &StateLock, cx: &UpdateWithCx<TgPoll>) -> RequestResult {
+    pub fn handle_votes(&mut self, state: &StateLock, cx: &UpdateWithCx<TgPoll>) -> RequestResult {
         match &self.poll_kind {
             PollKind::Meal {
                 meal_id,
                 reply_message_id,
             } => {
-                let meals = state.read().meals().clone();
-                let meal_opt = meals.get(meal_id).clone();
+                let meal_opt = state
+                    .write()
+                    .find_meal(self.chat_id, meal_id.to_string())
+                    .cloned();
                 match meal_opt {
                     None => {
-                        state.write().polls_mut().remove(&self.id.clone());
+                        state.write().remove_poll(self.chat_id, self.id.clone());
                         log::warn!("No meal with id {} found for poll: {:?}", meal_id, self);
                         RequestResult::default()
                             .add(RequestKind::StopPoll(
@@ -80,7 +79,7 @@ impl Poll {
                     Some(meal) => {
                         let total_votes = cx.update.total_voter_count;
                         if cx.update.is_closed {
-                            state.write().polls_mut().remove(&self.id.clone());
+                            state.write().remove_poll(self.chat_id, self.id.clone());
                             if total_votes > 0 && !self.is_canceled {
                                 // someone voted and poll closed successfully ->
                                 //              update meal and save meal and poll
@@ -98,7 +97,7 @@ impl Poll {
                                     ((avg as u8) + meal.rating.unwrap_or(avg as u8)) / 2,
                                 ));
                                 state.write().save_meal(&meal);
-                                state.write().meals_mut().remove(&meal.id);
+                                state.write().remove_meal(self.chat_id, meal.id.clone());
                                 log::info!("Poll closed: {}", meal.name);
                                 // tell user that meal has been saved with new rating
                                 RequestResult::default()
@@ -122,7 +121,7 @@ impl Poll {
                                                 format!("{}\n\nPoll Canceled!", meal),
                                             )
                                             .reply_markup(
-                                                Keyboard::new()
+                                                Keyboard::new(self.chat_id)
                                                     .buttons(vec![
                                                         vec![Button::new(
                                                             "Rate with Poll".into(),
@@ -147,18 +146,15 @@ impl Poll {
                             // remove poll keyboard
                             state
                                 .write()
-                                .keyboards_mut()
-                                .remove(&self.keyboard_id.clone());
+                                .remove_keyboard(self.chat_id, self.keyboard_id.clone());
                             log::info!("Poll Vote...",);
                             if total_votes > 0 {
-                                let keyboard = Keyboard::new()
+                                let keyboard = Keyboard::new(self.chat_id)
                                     .buttons(vec![button::save_poll_button_row(&meal)])
                                     .save(&state);
-                                state.write().polls_mut().iter_mut().for_each(|(_, poll)| {
-                                    if poll.id == self.id {
-                                        poll.keyboard_id = keyboard.id.clone()
-                                    }
-                                });
+                                // state.write().remove_poll(chat_id, self.id);
+                                self.keyboard_id = keyboard.id.clone();
+                                state.write().add_poll(self.chat_id, self.clone());
                                 // show save button
                                 RequestResult::default()
                                     .add(RequestKind::EditReplyMarkup(
@@ -171,7 +167,7 @@ impl Poll {
                                     ))
                                     .clone()
                             } else {
-                                let keyboard = Keyboard::new()
+                                let keyboard = Keyboard::new(self.chat_id)
                                     .buttons(vec![vec![Button::new(
                                         "Cancel Vote".to_uppercase(),
                                         ButtonKind::CancelPollRating {
@@ -179,11 +175,10 @@ impl Poll {
                                         },
                                     )]])
                                     .save(&state);
-                                state.write().polls_mut().iter_mut().for_each(|(_, poll)| {
-                                    if poll.id == self.id {
-                                        poll.keyboard_id = keyboard.id.clone()
-                                    }
-                                }); // hide show button
+                                // state.write().remove_poll(chat_id, self.id);
+                                self.keyboard_id = keyboard.id.clone();
+                                state.write().add_poll(self.chat_id, self.clone());
+                                // hide show button
                                 RequestResult::default()
                                     .add(RequestKind::EditReplyMarkup(
                                         cx.bot
