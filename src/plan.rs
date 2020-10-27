@@ -9,19 +9,21 @@ use crate::meal::Meal;
 pub struct Plan {
     pub meals: Vec<Meal>,
     pub days: usize,
+    pub chat_id: i64,
     pub id: String,
 }
 
 impl Plan {
-    pub fn new(meals: Vec<Meal>) -> Self {
+    pub fn new(chat_id: i64, meals: Vec<Meal>) -> Self {
         Self {
+            chat_id,
             meals: meals.clone(),
             days: meals.len(),
             id: nanoid!(),
         }
     }
 
-    pub fn gen(meals: Vec<Meal>, amount: usize) -> Self {
+    pub fn gen(chat_id: i64, meals: Vec<Meal>, amount: usize) -> Self {
         let weights: Vec<f64> = meals
             .iter()
             .map(|meal| meal.rating.unwrap_or(1) as f64)
@@ -33,6 +35,7 @@ impl Plan {
             .collect();
         let days = meal_plan.len();
         Self {
+            chat_id,
             meals: meal_plan,
             days: days,
             id: nanoid!(),

@@ -132,9 +132,10 @@ impl RequestResult {
                 },
             }
         }
-        log::debug!("K: {:?}", state.read().tg.keyboards.len());
-        log::debug!("P: {:?}", state.read().tg.polls.len());
-        log::debug!("M: {:?}", state.read().tg.meals.len());
-
+        log::debug!("KEYBS: {:?}", state.read().tg.keyboards.len());
+        log::debug!("POLLS: {:?}", state.read().tg.polls.len());
+        log::debug!("MEALS: {:?}", state.read().tg.meals.len());
+        log::debug!("PLANS: {:?}", state.read().tg.plans.len());
+        state.write().save();
     }
 }

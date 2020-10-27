@@ -1,14 +1,16 @@
 use nanoid::nanoid;
+use serde::{Deserialize, Serialize};
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 
 use crate::button::Button;
 use crate::StateLock;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Keyboard {
     pub id: String,
     pub buttons: Vec<Vec<Button>>,
     pub chat_id: i64,
+    pub persistent: bool,
 }
 
 impl Keyboard {
@@ -17,7 +19,13 @@ impl Keyboard {
             chat_id,
             id: nanoid!(),
             buttons: vec![],
+            persistent: false,
         }
+    }
+
+    pub fn persistent(mut self) -> Self {
+        self.persistent = true;
+        self
     }
 
     pub fn buttons(mut self, buttons: Vec<Vec<Button>>) -> Self {
@@ -54,13 +62,13 @@ impl Keyboard {
 
     pub fn save(self, state: &StateLock) -> Self {
         if self.buttons.iter().flatten().count() > 0 {
-            state.write().add_keyboard(self.chat_id, self.clone());
+            state.write().add_keyboard(self.clone());
         }
         self
     }
 
     pub fn remove(self, state: &StateLock) -> Self {
-        state.write().remove_keyboard(self.chat_id, self.id.clone());
+        state.write().remove_keyboard(self.id.clone());
         self
     }
 }

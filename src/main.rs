@@ -82,16 +82,15 @@ async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery
                         [keyboard_id, button_id] => {
                             let keyboard_opt = state
                                 .write()
-                                .find_keyboard(message.chat_id(), keyboard_id.to_string())
+                                .find_keyboard(keyboard_id.to_string())
                                 .cloned();
                             match keyboard_opt {
                                 Some(keyboard) => {
                                     if let Some(button) = keyboard.get_btn(button_id.to_string()) {
                                         button.kind.execute(&state, &cx).send(&state).await;
-                                        // state.write().remove_keyboard(
-                                        //     message.chat_id(),
-                                        //     keyboard_id.to_string(),
-                                        // );
+                                        if !keyboard.persistent {
+                                            state.write().remove_keyboard(keyboard_id.to_string());
+                                        }
                                     }
                                 }
                                 None => {
@@ -149,7 +148,7 @@ async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
         .for_each_concurrent(None, |(cx, state)| async move {
             let query = cx.update.query;
             let mut results: Vec<InlineQueryResult> = vec![];
-            let meals_db: Vec<Meal> = state.read().get_all_saved_meals();
+            let meals_db: Vec<Meal> = state.read().get_all_meals();
             meals_db.iter().for_each(|meal| {
                 let matcher = SkimMatcherV2::default();
                 if matcher.fuzzy_match(&meal.name, &query).is_some() || query.len() == 0 {
@@ -207,6 +206,7 @@ async fn run() {
     let config_str = fs::read_to_string("./config.json").expect("No config file found!");
     let config: Config = serde_json::from_str(&config_str).expect("Wrong config file!");
     let state = Arc::new(RwLock::new(State::new(config.clone())));
+    state.write().load();
     let bot = BotBuilder::new().token(config.token).build();
     let state_2 = state.clone();
     let state_3 = state.clone();

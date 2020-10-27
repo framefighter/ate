@@ -52,7 +52,7 @@ impl Poll {
     }
 
     pub fn save(self, state: &StateLock) -> Self {
-        state.write().add_poll(self.chat_id, self.clone());
+        state.write().add_poll(self.clone());
         self
     }
 
@@ -64,11 +64,11 @@ impl Poll {
             } => {
                 let meal_opt = state
                     .write()
-                    .find_meal(self.chat_id, meal_id.to_string())
+                    .find_meal(meal_id.to_string())
                     .cloned();
                 match meal_opt {
                     None => {
-                        state.write().remove_poll(self.chat_id, self.id.clone());
+                        state.write().remove_poll(self.id.clone());
                         log::warn!("No meal with id {} found for poll: {:?}", meal_id, self);
                         RequestResult::default()
                             .add(RequestKind::StopPoll(
@@ -79,7 +79,7 @@ impl Poll {
                     Some(meal) => {
                         let total_votes = cx.update.total_voter_count;
                         if cx.update.is_closed {
-                            state.write().remove_poll(self.chat_id, self.id.clone());
+                            state.write().remove_poll(self.id.clone());
                             if total_votes > 0 && !self.is_canceled {
                                 // someone voted and poll closed successfully ->
                                 //              update meal and save meal and poll
@@ -96,8 +96,7 @@ impl Poll {
                                 meal.rate(Some(
                                     ((avg as u8) + meal.rating.unwrap_or(avg as u8)) / 2,
                                 ));
-                                state.write().save_meal(&meal);
-                                state.write().remove_meal(self.chat_id, meal.id.clone());
+                                state.write().add_meal(meal.clone());
                                 log::info!("Poll closed: {}", meal.name);
                                 // tell user that meal has been saved with new rating
                                 RequestResult::default()
@@ -129,7 +128,7 @@ impl Poll {
                                                                 meal: meal.clone(),
                                                             },
                                                         )],
-                                                        button::save_meal_button_row(&meal.id),
+                                                        button::save_meal_button_row(&meal),
                                                     ])
                                                     .save(&state)
                                                     .inline_keyboard(),
@@ -146,7 +145,7 @@ impl Poll {
                             // remove poll keyboard
                             state
                                 .write()
-                                .remove_keyboard(self.chat_id, self.keyboard_id.clone());
+                                .remove_keyboard(self.keyboard_id.clone());
                             log::info!("Poll Vote...",);
                             if total_votes > 0 {
                                 let keyboard = Keyboard::new(self.chat_id)
@@ -154,7 +153,7 @@ impl Poll {
                                     .save(&state);
                                 // state.write().remove_poll(chat_id, self.id);
                                 self.keyboard_id = keyboard.id.clone();
-                                state.write().add_poll(self.chat_id, self.clone());
+                                state.write().add_poll(self.clone());
                                 // show save button
                                 RequestResult::default()
                                     .add(RequestKind::EditReplyMarkup(
@@ -170,14 +169,12 @@ impl Poll {
                                 let keyboard = Keyboard::new(self.chat_id)
                                     .buttons(vec![vec![Button::new(
                                         "Cancel Vote".to_uppercase(),
-                                        ButtonKind::CancelPollRating {
-                                            meal_id: meal.id.clone(),
-                                        },
+                                        ButtonKind::CancelPollRating { meal: meal.clone() },
                                     )]])
                                     .save(&state);
                                 // state.write().remove_poll(chat_id, self.id);
                                 self.keyboard_id = keyboard.id.clone();
-                                state.write().add_poll(self.chat_id, self.clone());
+                                state.write().add_poll(self.clone());
                                 // hide show button
                                 RequestResult::default()
                                     .add(RequestKind::EditReplyMarkup(

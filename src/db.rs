@@ -6,10 +6,9 @@ use crate::meal::Meal;
 
 #[derive(Debug)]
 pub enum DBKeys {
-    Meals,
+    State,
     MealsChat,
     Whitelist,
-    Plans,
 }
 
 impl fmt::Display for DBKeys {
@@ -20,21 +19,18 @@ impl fmt::Display for DBKeys {
 
 pub struct StoreHandler {
     pub db: pickledb::PickleDb,
-    pub plan_db: pickledb::PickleDb,
     pub meal_db: pickledb::PickleDb,
 }
 
 impl StoreHandler {
     pub fn new(do_backup: bool) -> Self {
         let mut sh = StoreHandler {
-            db: Self::create(DBKeys::Meals),
+            db: Self::create(DBKeys::State),
             meal_db: Self::create(DBKeys::MealsChat),
-            plan_db: Self::create(DBKeys::Plans),
         };
         sh.create_list(DBKeys::Whitelist);
-        sh.create_list(DBKeys::Meals);
         if do_backup {
-            sh.backup(DBKeys::Meals);
+            sh.backup(DBKeys::State);
         }
         sh
     }
@@ -52,7 +48,7 @@ impl StoreHandler {
 
     fn backup(&self, key: DBKeys) {
         let mut db_backup =
-            Self::create_json(format!("database/{}_backup_{}.db", key, nanoid!()), false);
+            Self::create_json(format!("database/{}_backup_{}.json", key, nanoid!()), false);
         match db_backup.lcreate(&key.to_string()) {
             Ok(_) => {
                 log::info!("Backing up {}!", key);
@@ -71,11 +67,11 @@ impl StoreHandler {
     }
 
     fn create(key: DBKeys) -> PickleDb {
-        let path = format!("database/{}.db", key.to_string().to_lowercase());
+        let path = format!("database/{}.json", key.to_string().to_lowercase());
         match PickleDb::load(
             path.clone(),
             PickleDbDumpPolicy::AutoDump,
-            SerializationMethod::Bin,
+            SerializationMethod::Json,
         ) {
             Ok(db) => {
                 log::info!("Found existing {} database!", path);
@@ -84,7 +80,7 @@ impl StoreHandler {
             Err(err) => {
                 log::warn!("{}", err);
                 log::info!("Creating new {} database!", path);
-                PickleDb::new(path, PickleDbDumpPolicy::AutoDump, SerializationMethod::Bin)
+                PickleDb::new(path, PickleDbDumpPolicy::AutoDump, SerializationMethod::Json)
             }
         }
     }

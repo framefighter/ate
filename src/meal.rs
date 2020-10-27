@@ -20,7 +20,7 @@ pub struct Meal {
 }
 
 impl Meal {
-    pub fn new(name: &String, chat_id: i64, user_id: i32,) -> Self {
+    pub fn new(name: &String, chat_id: i64, user_id: i32) -> Self {
         Self {
             chat_id,
             user_id,
@@ -33,13 +33,23 @@ impl Meal {
         }
     }
 
+    pub fn rename(&mut self, name: String) -> &mut Self {
+        self.name = name;
+        self
+    }
+
     pub fn rate(&mut self, rating: Option<u8>) -> &mut Self {
         self.rating = rating;
         self
     }
 
-    pub fn tag(&mut self, tags: Option<Vec<String>>) -> &mut Self {
-        self.tags.append(&mut tags.unwrap_or(vec![]));
+    pub fn tag(&mut self, tags: Vec<String>) -> &mut Self {
+        self.tags.append(&mut tags.clone());
+        self
+    }
+
+    pub fn set_tags(&mut self, tags: Vec<String>) -> &mut Self {
+        self.tags = tags;
         self
     }
 
@@ -54,7 +64,7 @@ impl Meal {
     }
 
     pub fn save(&self, state: &StateLock) -> &Self {
-        state.write().add_meal(self.chat_id, self.clone());
+        state.write().add_meal(self.clone());
         self
     }
 

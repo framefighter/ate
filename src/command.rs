@@ -227,9 +227,7 @@ impl Command {
                                     Some("How did it taste?".to_string()),
                                     Some(
                                         Keyboard::new(cx.chat_id())
-                                            .buttons(vec![button::rate_meal_button_row(
-                                                0, &meal.id,
-                                            )])
+                                            .buttons(vec![button::rate_meal_button_row(0, &meal)])
                                             .save(&state),
                                     ),
                                 ),
@@ -243,7 +241,7 @@ impl Command {
                         } => {
                             let mut meal = Meal::new(meal_name, cx.chat_id(), *user_id);
                             meal.rate(rating.clone())
-                                .tag(tags.clone())
+                                .tag(tags.clone().unwrap_or_default())
                                 .url(url.clone())
                                 .save(&state);
                             request.add(
@@ -257,7 +255,7 @@ impl Command {
                                                     "Rate with Poll".into(),
                                                     ButtonKind::PollRating { meal: meal.clone() },
                                                 )],
-                                                button::save_meal_button_row(&meal.id),
+                                                button::save_meal_button_row(&meal),
                                             ])
                                             .save(&state),
                                     ),
@@ -267,7 +265,7 @@ impl Command {
                         Command::Get(meal_name) => {
                             let meals = state
                                 .read()
-                                .get_saved_meals_by_name(cx.chat_id(), meal_name.clone());
+                                .get_meals_by_name(cx.chat_id(), meal_name.clone());
                             for meal in meals {
                                 request.add(
                                     meal.request(
@@ -277,9 +275,7 @@ impl Command {
                                             Keyboard::new(cx.chat_id())
                                                 .buttons(vec![vec![Button::new(
                                                     "Cancel".to_uppercase(),
-                                                    ButtonKind::CancelMeal {
-                                                        meal_id: meal.id.to_string(),
-                                                    },
+                                                    ButtonKind::DeleteMessage,
                                                 )]])
                                                 .save(&state),
                                         ),
@@ -290,32 +286,34 @@ impl Command {
                         Command::Remove(meal_name) => {
                             let meals = state
                                 .read()
-                                .get_saved_meals_by_name(cx.chat_id(), meal_name.clone());
+                                .get_meals_by_name(cx.chat_id(), meal_name.clone());
                             if meals.len() == 0 {
                                 request.message(
                                     cx.answer(format!("No meal with name {} found!", meal_name)),
                                 );
                             }
                             for meal in meals {
-                                state.write().remove_saved_meal(&meal);
+                                state.write().remove_meal(&meal);
                                 request.add(meal.request(&cx, Some(format!("Deleted!")), None));
                             }
                         }
                         Command::Plan(days_opt) => {
-                            let meals = state.read().get_saved_meals(cx.chat_id());
+                            let meals = state.read().get_meals(cx.chat_id());
                             let meal_count = meals.len();
                             let meal_plan = if let Some(days) = days_opt {
-                                Plan::gen(meals, *days)
+                                Plan::gen(cx.chat_id(), meals, *days)
                             } else {
                                 state
                                     .read()
-                                    .get_plan(cx.chat_id())
-                                    .unwrap_or(Plan::new(vec![]))
+                                    .find_plan(cx.chat_id())
+                                    .cloned()
+                                    .unwrap_or(Plan::new(cx.chat_id(), vec![]))
                             };
                             let days = days_opt.unwrap_or(0);
-                            state.write().save_plan(cx.chat_id(), meal_plan.clone());
+                            state.write().add_plan(meal_plan.clone());
                             let keyboard = Keyboard::new(cx.chat_id())
                                 .buttons(poll_plan_buttons(meal_plan.clone()))
+                                .persistent()
                                 .save(&state);
                             if days < 2 {
                                 request.message(cx.bot.send_message(
@@ -359,7 +357,7 @@ impl Command {
                         Command::List => {
                             let meal_btns: Vec<Vec<Button>> = state
                                 .read()
-                                .get_saved_meals(cx.chat_id())
+                                .get_meals(cx.chat_id())
                                 .iter()
                                 .map(|meal| {
                                     vec![Button::new(
@@ -386,19 +384,20 @@ impl Command {
                         Command::Rename(meal_name, new_name) => {
                             let meals = state
                                 .read()
-                                .get_saved_meals_by_name(cx.chat_id(), meal_name.clone());
+                                .get_meals_by_name(cx.chat_id(), meal_name.clone());
                             if meals.len() == 0 {
                                 request
                                     .message(cx.answer(format!("No meal with name {}", meal_name)));
                             }
                             for meal in meals {
-                                state.write().remove_saved_meal(&meal);
-                                let mut new_meal = meal.clone();
-                                new_meal.name = new_name.clone();
-                                state.write().save_meal(&new_meal);
+                                state
+                                    .write()
+                                    .meal_entry(meal.id.clone())
+                                    .or_insert(meal.clone())
+                                    .rename(new_name.to_string());
                                 request.add(meal.request(
                                     &cx,
-                                    Some(format!("Renamed meal {} to {}", meal_name, new_name)),
+                                    Some(format!("Renamed meal {} to {}", meal, new_name)),
                                     None,
                                 ));
                                 log::info!("Renamed meal {} to {}", meal_name, new_name)
@@ -407,21 +406,22 @@ impl Command {
                         Command::Rate(meal_name, new_rating) => {
                             let meals = state
                                 .read()
-                                .get_saved_meals_by_name(cx.chat_id(), meal_name.clone());
+                                .get_meals_by_name(cx.chat_id(), meal_name.clone());
                             if meals.len() == 0 {
                                 request
                                     .message(cx.answer(format!("No meal with name {}", meal_name)));
                             }
                             for meal in meals {
-                                state.write().remove_saved_meal(&meal);
-                                let mut new_meal = meal.clone();
-                                new_meal.rating = Some(new_rating.clone());
-                                state.write().save_meal(&new_meal);
+                                state
+                                    .write()
+                                    .meal_entry(meal.id.clone())
+                                    .or_insert(meal.clone())
+                                    .rate(Some(new_rating.clone()));
                                 request.add(meal.request(
                                     &cx,
                                     Some(format!(
                                         "Changed rating of meal {} to {}",
-                                        new_meal, new_rating
+                                        meal, new_rating
                                     )),
                                     None,
                                 ));
@@ -435,22 +435,20 @@ impl Command {
                         Command::Tag(meal_name, new_tags) => {
                             let meals = state
                                 .read()
-                                .get_saved_meals_by_name(cx.chat_id(), meal_name.clone());
+                                .get_meals_by_name(cx.chat_id(), meal_name.clone());
                             if meals.len() == 0 {
                                 request
                                     .message(cx.answer(format!("No meal with name {}", meal_name)));
                             }
                             for meal in meals {
-                                state.write().remove_saved_meal(&meal);
-                                let mut new_meal = meal.clone();
-                                new_meal.tag(Some(new_tags.clone()));
-                                state.write().save_meal(&new_meal);
+                                state
+                                    .write()
+                                    .meal_entry(meal.id.clone())
+                                    .or_insert(meal.clone())
+                                    .tag(new_tags.clone());
                                 request.add(meal.request(
                                     &cx,
-                                    Some(format!(
-                                        "Added tags to meal {}: {:?}",
-                                        meal_name, new_tags
-                                    )),
+                                    Some(format!("Added tags to meal {}: {:?}", meal, new_tags)),
                                     None,
                                 ));
                                 log::info!("Added tags to meal {}: {:?}", meal_name, new_tags)
@@ -459,15 +457,12 @@ impl Command {
                         Command::TagRemove(meal_name, rem_tags) => {
                             let meals = state
                                 .read()
-                                .get_saved_meals_by_name(cx.chat_id(), meal_name.clone());
+                                .get_meals_by_name(cx.chat_id(), meal_name.clone());
                             if meals.len() == 0 {
                                 request
                                     .message(cx.answer(format!("No meal with name {}", meal_name)));
                             }
                             for meal in meals {
-                                state.write().remove_saved_meal(&meal);
-
-                                let mut new_meal = meal.clone();
                                 let meal_tags = meal.tags.clone();
                                 let mut new_tags = vec![];
                                 for tag in meal_tags {
@@ -475,13 +470,16 @@ impl Command {
                                         new_tags.push(tag);
                                     }
                                 }
-                                new_meal.tags = new_tags.clone();
-                                state.write().save_meal(&new_meal);
+                                state
+                                    .write()
+                                    .meal_entry(meal.id.clone())
+                                    .or_insert(meal.clone())
+                                    .set_tags(new_tags.clone());
                                 request.add(meal.request(
                                     &cx,
                                     Some(format!(
                                         "Removed tags from meal {}: {:?}",
-                                        meal_name, rem_tags
+                                        meal, rem_tags
                                     )),
                                     None,
                                 ));
@@ -491,21 +489,22 @@ impl Command {
                         Command::Ref(meal_name, new_reference) => {
                             let meals = state
                                 .read()
-                                .get_saved_meals_by_name(cx.chat_id(), meal_name.clone());
+                                .get_meals_by_name(cx.chat_id(), meal_name.clone());
                             if meals.len() == 0 {
                                 request
                                     .message(cx.answer(format!("No meal with name {}", meal_name)));
                             }
                             for meal in meals {
-                                state.write().remove_saved_meal(&meal);
-                                let mut new_meal = meal.clone();
-                                new_meal.url = Some(new_reference.clone());
-                                state.write().save_meal(&new_meal);
+                                state
+                                    .write()
+                                    .meal_entry(meal.id.clone())
+                                    .or_insert(meal.clone())
+                                    .url(Some(new_reference.clone()));
                                 request.add(meal.request(
                                     &cx,
                                     Some(format!(
                                         "Changed url of meal {} to {}",
-                                        meal_name, new_reference
+                                        meal, new_reference
                                     )),
                                     None,
                                 ));
@@ -598,7 +597,7 @@ impl PhotoCommand {
                                         }
                                         let mut meal = Meal::new(meal_name, cx.chat_id(), *user_id);
                                         meal.rate(rating.clone())
-                                            .tag(tags.clone())
+                                            .tag(tags.clone().unwrap_or_default())
                                             .url(url.clone())
                                             .photo(photo.clone())
                                             .save(&state);
@@ -616,9 +615,7 @@ impl PhotoCommand {
                                                                         meal: meal.clone(),
                                                                     },
                                                                 )],
-                                                                button::save_meal_button_row(
-                                                                    &meal.id,
-                                                                ),
+                                                                button::save_meal_button_row(&meal),
                                                             ])
                                                             .save(&state),
                                                     ),
@@ -651,10 +648,9 @@ impl PhotoCommand {
                                             ),
                                             Err(err) => log::warn!("{}", err),
                                         }
-                                        let meals = state.read().get_saved_meals_by_name(
-                                            cx.chat_id(),
-                                            meal_name.clone(),
-                                        );
+                                        let meals = state
+                                            .read()
+                                            .get_meals_by_name(cx.chat_id(), meal_name.clone());
                                         if meals.len() == 0 {
                                             RequestResult::default()
                                                 .message(cx.answer(format!(
@@ -665,12 +661,13 @@ impl PhotoCommand {
                                                 .await;
                                         }
                                         for meal in meals {
-                                            state.write().remove_saved_meal(&meal);
-                                            let mut new_meal = meal.clone();
-                                            new_meal.photo(photo.clone());
-                                            state.write().save_meal(&new_meal);
+                                            state
+                                                .write()
+                                                .meal_entry(meal.id.clone())
+                                                .or_insert(meal.clone())
+                                                .photo(photo.clone());
                                             RequestResult::default()
-                                                .add(new_meal.request(
+                                                .add(meal.request(
                                                     &cx,
                                                     Some("Saved new photo!".to_string()),
                                                     None,

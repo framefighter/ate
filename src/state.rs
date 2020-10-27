@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fmt;
+use std::collections::{hash_map::Entry, HashMap};
 
 use crate::db::{DBKeys, StoreHandler};
 use crate::keyboard::Keyboard;
@@ -15,20 +14,12 @@ pub struct State {
     pub config: Config,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct StateId(String, i64);
-
-impl fmt::Display for StateId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}-{}", self.0, self.1)
-    }
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TgState {
-    pub keyboards: HashMap<StateId, Keyboard>,
-    pub meals: HashMap<StateId, Meal>,
-    pub polls: HashMap<StateId, Poll>,
+    pub keyboards: HashMap<String, Keyboard>,
+    pub meals: HashMap<String, Meal>,
+    pub polls: HashMap<String, Poll>,
+    pub plans: HashMap<i64, Plan>,
 }
 
 impl Default for TgState {
@@ -37,6 +28,7 @@ impl Default for TgState {
             keyboards: HashMap::new(),
             meals: HashMap::new(),
             polls: HashMap::new(),
+            plans: HashMap::new(),
         }
     }
 }
@@ -48,40 +40,90 @@ impl State {
         Self { sh, tg, config }
     }
 
-    pub fn find_meal(&mut self, chat_id: i64, id: String) -> Option<&mut Meal> {
-        self.tg.meals.get_mut(&StateId(id, chat_id))
+    pub fn find_meal(&self, id: String) -> Option<&Meal> {
+        self.tg.meals.get(&id)
     }
-    pub fn find_keyboard(&mut self, chat_id: i64, id: String) -> Option<&mut Keyboard> {
-        self.tg.keyboards.get_mut(&StateId(id, chat_id))
+    pub fn meal_entry(&mut self, id: String) -> Entry<String, Meal> {
+        self.tg.meals.entry(id)
     }
-    pub fn find_poll(&mut self, chat_id: i64, id: String) -> Option<&mut Poll> {
-        self.tg.polls.get_mut(&StateId(id, chat_id))
-    }
-
-    pub fn add_meal(&mut self, chat_id: i64, meal: Meal) {
+    pub fn get_meals(&self, chat_id: i64) -> Vec<Meal> {
         self.tg
             .meals
-            .insert(StateId(meal.id.clone(), chat_id), meal);
+            .iter()
+            .filter_map(|(_, meal)| {
+                if meal.chat_id == chat_id {
+                    Some(meal.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
-    pub fn add_keyboard(&mut self, chat_id: i64, keyboard: Keyboard) {
+    pub fn get_meals_mut(&mut self, chat_id: i64) -> Vec<&mut Meal> {
         self.tg
-            .keyboards
-            .insert(StateId(keyboard.id.clone(), chat_id), keyboard);
+            .meals
+            .iter_mut()
+            .filter_map(|(_, meal)| {
+                if meal.chat_id == chat_id {
+                    Some(meal)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
-    pub fn add_poll(&mut self, chat_id: i64, poll: Poll) {
-        self.tg
-            .polls
-            .insert(StateId(poll.id.clone(), chat_id), poll);
+    pub fn get_all_meals(&self) -> Vec<Meal> {
+        self.tg.meals.iter().map(|(_, meal)| meal.clone()).collect()
+    }
+    pub fn get_meals_by_name(&self, chat_id: i64, meal_name: String) -> Vec<Meal> {
+        self.get_meals(chat_id)
+            .into_iter()
+            .filter(|meal| meal.name.to_uppercase() == meal_name.to_uppercase())
+            .collect()
     }
 
-    pub fn remove_meal(&mut self, chat_id: i64, id: String) {
-        self.tg.meals.remove(&StateId(id, chat_id));
+    pub fn find_keyboard(&self, id: String) -> Option<&Keyboard> {
+        self.tg.keyboards.get(&id)
     }
-    pub fn remove_keyboard(&mut self, chat_id: i64, keyboard_id: String) {
-        self.tg.keyboards.remove(&StateId(keyboard_id, chat_id));
+    pub fn find_poll(&self, id: String) -> Option<&Poll> {
+        self.tg.polls.get(&id)
     }
-    pub fn remove_poll(&mut self, chat_id: i64, id: String) {
-        self.tg.polls.remove(&StateId(id, chat_id));
+    pub fn find_plan(&self, chat_id: i64) -> Option<&Plan> {
+        self.tg.plans.get(&chat_id)
+    }
+
+    pub fn add_meal(&mut self, meal: Meal) {
+        self.tg
+            .meals
+            .insert(meal.id.clone(), meal);
+    }
+    pub fn add_keyboard(&mut self, keyboard: Keyboard) {
+        self.tg
+            .keyboards
+            .insert(keyboard.id.clone(), keyboard);
+    }
+    pub fn add_poll(&mut self, poll: Poll) {
+        self.tg
+            .polls
+            .insert(poll.id.clone(), poll);
+    }
+    pub fn add_plan(&mut self, plan: Plan) {
+        self.tg.plans.insert(plan.chat_id, plan);
+    }
+
+    pub fn remove_meal(&mut self, meal: &Meal) {
+        self.tg
+            .meals
+            .remove(&meal.id.clone());
+    }
+    pub fn remove_keyboard(&mut self, keyboard_id: String) {
+        self.tg.keyboards.remove(&keyboard_id);
+    }
+    pub fn remove_poll(&mut self, id: String) {
+        self.tg.polls.remove(&id);
+    }
+    pub fn remove_plan(&mut self, chat_id: i64) {
+        self.tg.plans.remove(&chat_id);
     }
 
     pub fn find_poll_by_poll_id(&mut self, poll_id: String) -> Option<&mut Poll> {
@@ -103,78 +145,24 @@ impl State {
             })
     }
 
-    pub fn rate_meal(&mut self, chat_id: i64, meal_id: String, rating: u8) -> Result<Meal, ()> {
-        match self.find_meal(chat_id, meal_id) {
-            Some(meal) => {
-                meal.rate(Some(rating));
-                Ok(meal.clone())
-            }
-            None => Err(()),
+    pub fn rate_meal(&mut self, meal: Meal, rating: u8) {
+        self.meal_entry(meal.id.clone())
+            .or_insert(meal)
+            .rate(Some(rating));
+    }
+
+    pub fn save(&mut self) {
+        match self.sh.db.set(&DBKeys::State.to_string(), &self.tg) {
+            Ok(_) => log::info!("Saved State"),
+            Err(err) => log::warn!("Could not save state: ({})", err),
         }
     }
-
-    pub fn get_saved_meal(&self, chat_id: i64, meal_id: String) -> Option<Meal> {
-        self.sh.meal_db.get(&StateId(meal_id, chat_id).to_string())
-    }
-
-    pub fn get_saved_meals(&self, chat_id: i64) -> Vec<Meal> {
-        self.sh
-            .meal_db
-            .iter()
-            .filter_map(|item| match item.get_value::<Meal>() {
-                Some(meal) => match meal {
-                    Meal { chat_id: id, .. } => {
-                        if id == chat_id {
-                            Some(meal)
-                        } else {
-                            None
-                        }
-                    }
-                },
-                _ => None,
-            })
-            .collect()
-    }
-
-    pub fn get_all_saved_meals(&self) -> Vec<Meal> {
-        self.sh
-            .meal_db
-            .iter()
-            .filter_map(|item| item.get_value::<Meal>())
-            .collect()
-    }
-
-    pub fn get_saved_meals_by_name(&self, chat_id: i64, meal_name: String) -> Vec<Meal> {
-        self.get_saved_meals(chat_id)
-            .into_iter()
-            .filter(|meal| meal.name.to_uppercase() == meal_name.to_uppercase())
-            .collect()
-    }
-
-    pub fn save_meal(&mut self, meal: &Meal) {
-        match self
+    pub fn load(&mut self) {
+        self.tg = self
             .sh
-            .meal_db
-            .set(&StateId(meal.id.clone(), meal.chat_id).to_string(), meal)
-        {
-            Ok(()) => log::info!("Saving Meal: {:?}", meal),
-            Err(err) => log::warn!("Error saving Meal: {}", err),
-        }
-    }
-
-    pub fn remove_saved_meal(&mut self, meal: &Meal) {
-        self.remove_saved_meal_by_id(meal.chat_id, meal.id.clone());
-    }
-
-    pub fn remove_saved_meal_by_id(&mut self, chat_id: i64, meal_id: String) {
-        match self
-            .sh
-            .meal_db
-            .rem(&StateId(meal_id.clone(), chat_id).to_string())
-        {
-            Ok(_) => log::info!("Removed Meal: {:?}", meal_id),
-            Err(err) => log::warn!("Error removing Meal: {}", err),
-        }
+            .db
+            .get(&DBKeys::State.to_string())
+            .unwrap_or_default();
     }
 
     pub fn whitelist_user(&mut self, username: String) {
@@ -188,16 +176,5 @@ impl State {
             .liter(&DBKeys::Whitelist.to_string())
             .filter_map(|item| item.get_item::<String>())
             .collect()
-    }
-
-    pub fn save_plan(&mut self, chat_id: i64, meal_plan: Plan) {
-        match self.sh.plan_db.set(&chat_id.to_string(), &meal_plan) {
-            Ok(()) => {}
-            Err(err) => log::warn!("{}", err),
-        }
-    }
-
-    pub fn get_plan(&self, chat_id: i64) -> Option<Plan> {
-        self.sh.plan_db.get(&chat_id.to_string())
     }
 }
