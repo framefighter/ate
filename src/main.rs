@@ -36,7 +36,9 @@ async fn handle_message(state: StateLock, rx: DispatcherHandlerRx<Message>) {
                 }
                 let parsed = Command::parse(text, bot_name);
                 match parsed {
-                    Ok(command) => command.execute(&state, &cx).send(&state).await,
+                    Ok(command) => {
+                        command.execute(&state, &cx).send(&state).await;
+                    }
                     Err(err) => {
                         if let Err(err) = cx.answer(err.to_string()).send().await {
                             log::warn!("{}", err);
@@ -86,8 +88,11 @@ async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery
                                 Some(keyboard) => {
                                     if let Some(button) = keyboard.get_btn(button_id.to_string()) {
                                         button.kind.execute(&state, &cx).send(&state).await;
+                                        // state.write().remove_keyboard(
+                                        //     message.chat_id(),
+                                        //     keyboard_id.to_string(),
+                                        // );
                                     }
-                                    // state.write().keyboards_mut().remove(keyboard_id);
                                 }
                                 None => {
                                     RequestResult::default()

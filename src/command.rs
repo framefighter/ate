@@ -332,7 +332,7 @@ impl Command {
                                     cx.bot
                                         .send_poll(
                                             cx.chat_id(),
-                                            format!("Plan:\n(Click to Vote or use buttons to get meal info)"),
+                                            format!("Plan:\n(Click to vote or use buttons to get meal info)"),
                                             meal_plan.answers(),
                                         )
                                         .reply_markup(ReplyMarkup::InlineKeyboardMarkup(
