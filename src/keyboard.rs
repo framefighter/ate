@@ -10,7 +10,6 @@ pub struct Keyboard {
     pub id: String,
     pub buttons: Vec<Vec<Button>>,
     pub chat_id: i64,
-    pub persistent: bool,
 }
 
 impl Keyboard {
@@ -19,13 +18,7 @@ impl Keyboard {
             chat_id,
             id: nanoid!(),
             buttons: vec![],
-            persistent: false,
         }
-    }
-
-    pub fn persistent(mut self) -> Self {
-        self.persistent = true;
-        self
     }
 
     pub fn buttons(mut self, buttons: Vec<Vec<Button>>) -> Self {

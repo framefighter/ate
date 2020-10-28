@@ -93,28 +93,20 @@ impl State {
     }
 
     pub fn add_meal(&mut self, meal: Meal) {
-        self.tg
-            .meals
-            .insert(meal.id.clone(), meal);
+        self.tg.meals.insert(meal.id.clone(), meal);
     }
     pub fn add_keyboard(&mut self, keyboard: Keyboard) {
-        self.tg
-            .keyboards
-            .insert(keyboard.id.clone(), keyboard);
+        self.tg.keyboards.insert(keyboard.id.clone(), keyboard);
     }
     pub fn add_poll(&mut self, poll: Poll) {
-        self.tg
-            .polls
-            .insert(poll.id.clone(), poll);
+        self.tg.polls.insert(poll.id.clone(), poll);
     }
     pub fn add_plan(&mut self, plan: Plan) {
         self.tg.plans.insert(plan.chat_id, plan);
     }
 
     pub fn remove_meal(&mut self, meal: &Meal) {
-        self.tg
-            .meals
-            .remove(&meal.id.clone());
+        self.tg.meals.remove(&meal.id.clone());
     }
     pub fn remove_keyboard(&mut self, keyboard_id: String) {
         self.tg.keyboards.remove(&keyboard_id);
@@ -141,6 +133,20 @@ impl State {
             .map(|(_, p)| p)
             .find(|poll| match &poll.poll_kind {
                 PollKind::Meal { meal_id: id, .. } => id == &meal_id,
+                _ => false,
+            })
+    }
+
+    pub fn find_poll_by_plan_id(&mut self, plan_id: String) -> Option<&mut Poll> {
+        self.tg
+            .polls
+            .iter_mut()
+            .map(|(_, p)| p)
+            .find(|poll| match &poll.poll_kind {
+                PollKind::Plan {
+                    plan: Plan { id, .. },
+                    ..
+                } => id == &plan_id,
                 _ => false,
             })
     }

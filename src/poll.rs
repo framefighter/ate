@@ -62,17 +62,14 @@ impl Poll {
                 meal_id,
                 reply_message_id,
             } => {
-                let meal_opt = state
-                    .write()
-                    .find_meal(meal_id.to_string())
-                    .cloned();
+                let meal_opt = state.write().find_meal(meal_id.to_string()).cloned();
                 match meal_opt {
                     None => {
-                        state.write().remove_poll(self.id.clone());
                         log::warn!("No meal with id {} found for poll: {:?}", meal_id, self);
                         RequestResult::default()
                             .add(RequestKind::StopPoll(
                                 cx.bot.stop_poll(self.chat_id.clone(), self.message_id),
+                                Some(self.clone()),
                             ))
                             .clone()
                     }
@@ -92,11 +89,9 @@ impl Poll {
                                     .collect();
                                 let avg = votes.iter().fold(0, |sum, vote| sum + vote.0 * vote.1)
                                     / total_votes;
-                                let mut meal = meal.clone();
-                                meal.rate(Some(
+                                state.write().meal_entry(meal.id.clone()).or_insert(meal.clone()).rate(Some(
                                     ((avg as u8) + meal.rating.unwrap_or(avg as u8)) / 2,
                                 ));
-                                state.write().add_meal(meal.clone());
                                 log::info!("Poll closed: {}", meal.name);
                                 // tell user that meal has been saved with new rating
                                 RequestResult::default()
@@ -143,13 +138,11 @@ impl Poll {
                         } else {
                             // poll still in progress
                             // remove poll keyboard
-                            state
-                                .write()
-                                .remove_keyboard(self.keyboard_id.clone());
+                            state.write().remove_keyboard(self.keyboard_id.clone());
                             log::info!("Poll Vote...",);
                             if total_votes > 0 {
                                 let keyboard = Keyboard::new(self.chat_id)
-                                    .buttons(vec![button::save_poll_button_row(&meal)])
+                                    .buttons(vec![button::save_poll_button_row(&meal, self)])
                                     .save(&state);
                                 // state.write().remove_poll(chat_id, self.id);
                                 self.keyboard_id = keyboard.id.clone();

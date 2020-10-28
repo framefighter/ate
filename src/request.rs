@@ -13,7 +13,7 @@ pub enum RequestKind {
     EditMedia(EditMessageMedia),
     EditInlineMedia(EditInlineMessageMedia),
     Poll(SendPoll, PollKind, String),
-    StopPoll(StopPoll),
+    StopPoll(StopPoll, Option<Poll>),
     DeleteMessage(DeleteMessage),
     EditReplyMarkup(EditMessageReplyMarkup),
     CallbackAnswer(AnswerCallbackQuery),
@@ -126,10 +126,17 @@ impl RequestResult {
                         Err(err) => log::warn!("Send Poll: {}", err),
                     }
                 }
-                RequestKind::StopPoll(send_request) => match send_request.send().await {
-                    Ok(_) => log::info!("Stopping Poll"),
-                    Err(err) => log::warn!("Error Stop Poll: {}", err),
-                },
+                RequestKind::StopPoll(send_request, poll) => {
+                    match send_request.send().await {
+                        Ok(_) => {
+                            if let Some(poll) = poll {
+                                state.write().remove_poll(poll.id.clone());
+                            }
+                            log::info!("Stopping Poll")
+                        }
+                        Err(err) => log::warn!("Error Stop Poll: {}", err),
+                    }
+                }
             }
         }
         log::debug!("KEYBS: {:?}", state.read().tg.keyboards.len());

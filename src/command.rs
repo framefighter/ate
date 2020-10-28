@@ -309,18 +309,16 @@ impl Command {
                                     .cloned()
                                     .unwrap_or(Plan::new(cx.chat_id(), vec![]))
                             };
-                            let days = days_opt.unwrap_or(0);
                             state.write().add_plan(meal_plan.clone());
                             let keyboard = Keyboard::new(cx.chat_id())
                                 .buttons(poll_plan_buttons(meal_plan.clone()))
-                                .persistent()
                                 .save(&state);
-                            if days < 2 {
+                            if meal_plan.days < 2 {
                                 request.message(cx.bot.send_message(
                                     cx.chat_id(),
                                     format!("Plan for at least 2 days!"),
                                 ));
-                            } else if days > 10 {
+                            } else if meal_plan.days > 10 {
                                 request.message(cx.bot.send_message(
                                     cx.chat_id(),
                                     format!("Can only plan for a maximum of 10 days!"),

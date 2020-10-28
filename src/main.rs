@@ -88,9 +88,7 @@ async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery
                                 Some(keyboard) => {
                                     if let Some(button) = keyboard.get_btn(button_id.to_string()) {
                                         button.kind.execute(&state, &cx).send(&state).await;
-                                        if !keyboard.persistent {
-                                            state.write().remove_keyboard(keyboard_id.to_string());
-                                        }
+                                        state.write().remove_keyboard(keyboard_id.to_string());
                                     }
                                 }
                                 None => {
