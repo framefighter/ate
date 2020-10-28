@@ -44,15 +44,18 @@ impl Plan {
 
     pub fn buttons(&self) -> Vec<Vec<Button>> {
         self.meals
-            .iter()
-            .map(|meal| {
-                vec![Button::new(
-                    meal.name.clone(),
-                    ButtonKind::DisplayPlanMeal {
-                        meal: meal.clone(),
-                        plan: self.clone(),
-                    },
-                )]
+            .as_slice()
+            .chunks(4)
+            .map(|row| {
+                row.iter().map(|meal| {
+                    Button::new(
+                        meal.name.clone(),
+                        ButtonKind::DisplayPlanMeal {
+                            meal: meal.clone(),
+                            plan: self.clone(),
+                        },
+                    )
+                }).collect::<Vec<_>>()
             })
             .collect()
     }

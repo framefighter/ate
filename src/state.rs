@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{hash_map::Entry, HashMap};
 
+use crate::button::{Button, ButtonKind};
 use crate::db::{DBKeys, StoreHandler};
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
@@ -181,6 +182,23 @@ impl State {
             .db
             .liter(&DBKeys::Whitelist.to_string())
             .filter_map(|item| item.get_item::<String>())
+            .collect()
+    }
+
+    pub fn meal_buttons(&self, chat_id: i64) -> Vec<Vec<Button>> {
+        self.get_meals(chat_id)
+            .as_slice()
+            .chunks(4)
+            .map(|row| {
+                row.iter()
+                    .map(|meal| {
+                        Button::new(
+                            meal.name.clone(),
+                            ButtonKind::DisplayListMeal { meal: meal.clone() },
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
             .collect()
     }
 }

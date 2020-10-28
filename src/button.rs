@@ -239,7 +239,7 @@ impl ButtonKind {
             }
             ButtonKind::ShowPlan { plan } => Self::edit_callback_text(
                 &cx,
-                format!("Plan:\n(Click to see details)"),
+                format!("Plan:\n(Click to vote or use buttons to get meal info)"),
                 Some(
                     Keyboard::new(chat_id)
                         .buttons(poll_plan_buttons(plan.clone()))
@@ -272,7 +272,9 @@ impl ButtonKind {
                             cx.bot
                                 .send_poll(
                                     message.chat_id(),
-                                    format!("Plan:\n(Click to see details)"),
+                                    format!(
+                                        "Plan:\n(Click to vote or use buttons to get meal info)"
+                                    ),
                                     meal_plan.answers(),
                                 )
                                 .reply_markup(ReplyMarkup::InlineKeyboardMarkup(
@@ -305,7 +307,9 @@ impl ButtonKind {
                             cx.bot
                                 .send_poll(
                                     message.chat_id(),
-                                    format!("Plan:\n(Click to see details)"),
+                                    format!(
+                                        "Plan:\n(Click to vote or use buttons to get meal info)"
+                                    ),
                                     plan.answers(),
                                 )
                                 .reply_markup(ReplyMarkup::InlineKeyboardMarkup(
@@ -342,21 +346,11 @@ impl ButtonKind {
                 Self::edit_callback_text(&cx, format!("{}", meal), Some(keyboard))
             }
             ButtonKind::ShowList => {
-                let meal_buttons: Vec<Vec<Button>> = state
-                    .read()
-                    .get_meals(chat_id)
-                    .iter()
-                    .map(|meal| {
-                        vec![Button::new(
-                            meal.name.clone(),
-                            ButtonKind::DisplayListMeal { meal: meal.clone() },
-                        )]
-                    })
-                    .collect();
+                let meal_buttons = state.read().meal_buttons(chat_id);
                 if meal_buttons.len() > 0 {
                     Self::edit_callback_text(
                         &cx,
-                        format!("List:"),
+                        format!("List:\n(Click to get more information)"),
                         Some(
                             Keyboard::new(chat_id)
                                 .buttons(meal_buttons)
@@ -490,9 +484,10 @@ pub fn save_poll_button_row(meal: &Meal, poll: &Poll) -> Vec<Button> {
 
 pub fn poll_plan_buttons(plan: Plan) -> Vec<Vec<Button>> {
     let meal_info = plan.buttons();
+    dbg!(meal_info.clone());
     vec![
-        meal_info.concat(),
-        vec![
+        meal_info,
+        vec![vec![
             Button::new(
                 "Reroll".to_string(),
                 ButtonKind::RerollPlan { plan: plan.clone() },
@@ -502,6 +497,7 @@ pub fn poll_plan_buttons(plan: Plan) -> Vec<Vec<Button>> {
                 ButtonKind::ClearVotes { plan: plan.clone() },
             ),
             Button::new("Exit".to_string(), ButtonKind::RemovePlanPoll { plan }),
-        ],
+        ]],
     ]
+    .concat()
 }

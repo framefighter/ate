@@ -353,22 +353,12 @@ impl Command {
                         }
 
                         Command::List => {
-                            let meal_btns: Vec<Vec<Button>> = state
-                                .read()
-                                .get_meals(cx.chat_id())
-                                .iter()
-                                .map(|meal| {
-                                    vec![Button::new(
-                                        meal.name.clone(),
-                                        ButtonKind::DisplayListMeal { meal: meal.clone() },
-                                    )]
-                                })
-                                .collect();
-                            if meal_btns.len() > 0 {
+                            let meal_buttons = state.read().meal_buttons(cx.chat_id());
+                            if meal_buttons.len() > 0 {
                                 request.message(
                                     cx.answer(format!("List:")).reply_markup(
                                         Keyboard::new(cx.chat_id())
-                                            .buttons(meal_btns)
+                                            .buttons(meal_buttons)
                                             .save(&state)
                                             .inline_keyboard(),
                                     ),
