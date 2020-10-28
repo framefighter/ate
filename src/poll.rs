@@ -22,6 +22,29 @@ pub enum PollKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PollBuildStepOne {
+    pub id: String,
+    pub chat_id: i64,
+    pub poll_kind: PollKind,
+    pub is_canceled: bool,
+    pub keyboard_id: String,
+}
+
+impl PollBuildStepOne {
+    pub fn finalize(&self, poll_id: String, message_id: i32) -> Poll {
+        Poll {
+            id: self.id.clone(),
+            poll_id,
+            chat_id: self.chat_id,
+            message_id,
+            poll_kind: self.poll_kind.clone(),
+            keyboard_id: self.keyboard_id.clone(),
+            is_canceled: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Poll {
     pub id: String,
     pub poll_id: String,
@@ -45,6 +68,16 @@ impl Poll {
             poll_id,
             chat_id,
             message_id,
+            poll_kind,
+            keyboard_id,
+            is_canceled: false,
+        }
+    }
+
+    pub fn build(chat_id: i64, poll_kind: PollKind, keyboard_id: String) -> PollBuildStepOne {
+        PollBuildStepOne {
+            id: nanoid!(),
+            chat_id,
             poll_kind,
             keyboard_id,
             is_canceled: false,
@@ -167,7 +200,7 @@ impl Poll {
                                     .buttons(vec![vec![Button::new(
                                         "Cancel Vote".to_uppercase(),
                                         ButtonKind::CancelPollRating {
-                                            meal_id: meal.id.clone(),
+                                            poll_id: self.id.clone(),
                                         },
                                     )]])
                                     .save(&state);

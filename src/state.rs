@@ -89,6 +89,9 @@ impl State {
     pub fn find_poll(&self, id: &String) -> Option<Poll> {
         self.tg.polls.get(id).cloned()
     }
+    pub fn poll_entry(&mut self, id: String) -> Entry<String, Poll> {
+        self.tg.polls.entry(id)
+    }
     pub fn find_plan(&self, chat_id: &i64) -> Option<Plan> {
         self.tg.plans.get(chat_id).cloned()
     }
@@ -138,17 +141,6 @@ impl State {
                 _ => false,
             })
             .cloned()
-    }
-
-    pub fn find_poll_by_meal_id_mut(&mut self, meal_id: &String) -> Option<&mut Poll> {
-        self.tg
-            .polls
-            .iter_mut()
-            .map(|(_, p)| p)
-            .find(|poll| match &poll.poll_kind {
-                PollKind::Meal { meal_id: id, .. } => id == meal_id,
-                _ => false,
-            })
     }
 
     pub fn find_poll_by_plan_id(&self, plan_id: &String) -> Option<Poll> {

@@ -11,7 +11,7 @@ use crate::button::{poll_plan_buttons, Button, ButtonKind};
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
 use crate::plan::Plan;
-use crate::poll::PollKind;
+use crate::poll::{Poll, PollKind};
 use crate::request::{RequestKind, RequestResult};
 use crate::{ContextMessage, StateLock, VERSION};
 
@@ -313,9 +313,6 @@ impl Command {
                                     .unwrap_or(Plan::new(cx.chat_id(), vec![]))
                             };
                             state.write().add_plan(meal_plan.clone());
-                            let keyboard = Keyboard::new(cx.chat_id())
-                                .buttons(poll_plan_buttons(&meal_plan))
-                                .save(&state);
                             if meal_plan.days < 2 {
                                 request.message(cx.bot.send_message(
                                     cx.chat_id(),
@@ -327,6 +324,15 @@ impl Command {
                                     format!("Can only plan for a maximum of 10 days!"),
                                 ));
                             } else if meal_plan.days > 1 {
+                                let mut keyboard = Keyboard::new(cx.chat_id());
+                                let keyboard_id = keyboard.id.clone();
+                                let poll_kind = PollKind::Plan {
+                                    plan: meal_plan.clone(),
+                                };
+                                let poll_builder =
+                                    Poll::build(cx.chat_id(), 
+                                    poll_kind.clone(), keyboard_id);
+                                    keyboard = keyboard.buttons(poll_plan_buttons(&meal_plan)).save(&state);
                                 request.add(RequestKind::Poll(
                                     cx.bot
                                         .send_poll(
@@ -337,9 +343,8 @@ impl Command {
                                         .reply_markup(ReplyMarkup::InlineKeyboardMarkup(
                                             keyboard.inline_keyboard(),
                                         )),
-                                    PollKind::Plan { plan: meal_plan },
-                                    keyboard.id,
-                                ));
+                                        poll_builder,    
+                                    ));
                             } else {
                                 if meal_count < days_opt.unwrap_or(0) {
                                     request.message(cx.bot.send_message(

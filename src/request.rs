@@ -1,7 +1,7 @@
 use teloxide::requests::*;
 use teloxide::types::*;
 
-use crate::poll::{Poll, PollKind};
+use crate::poll::{Poll, PollBuildStepOne, PollKind};
 use crate::StateLock;
 
 #[derive(Clone, Debug)]
@@ -12,7 +12,7 @@ pub enum RequestKind {
     EditInlineMessage(EditInlineMessageText),
     EditMedia(EditMessageMedia),
     EditInlineMedia(EditInlineMessageMedia),
-    Poll(SendPoll, PollKind, String),
+    Poll(SendPoll, PollBuildStepOne),
     StopPoll(StopPoll, Option<Poll>),
     DeleteMessage(DeleteMessage),
     EditReplyMarkup(EditMessageReplyMarkup),
@@ -97,7 +97,7 @@ impl RequestResult {
                     Ok(_) => log::info!("Pin Message"),
                     Err(err) => log::warn!("Pin Message: {}", err),
                 },
-                RequestKind::Poll(send_request, poll_kind, keyboard_id) => {
+                RequestKind::Poll(send_request, poll_builder) => {
                     match send_request.send().await {
                         Ok(message) => match message.clone() {
                             Message {
@@ -111,14 +111,7 @@ impl RequestResult {
                                 ..
                             } => {
                                 let poll_id = poll.id;
-                                Poll::new(
-                                    poll_id,
-                                    chat_id,
-                                    message_id,
-                                    poll_kind.clone(),
-                                    keyboard_id.clone(),
-                                )
-                                .save(&state);
+                                poll_builder.finalize(poll_id, message_id).save(&state);
                                 log::info!("Send Poll",);
                             }
                             _ => log::warn!("No Poll found in Message: {:?}", message),
@@ -126,23 +119,21 @@ impl RequestResult {
                         Err(err) => log::warn!("Send Poll: {}", err),
                     }
                 }
-                RequestKind::StopPoll(send_request, poll) => {
-                    match send_request.send().await {
-                        Ok(_) => {
-                            if let Some(poll) = poll {
-                                state.write().remove_poll(&poll.id);
-                            }
-                            log::info!("Stopping Poll")
+                RequestKind::StopPoll(send_request, poll) => match send_request.send().await {
+                    Ok(_) => {
+                        if let Some(poll) = poll {
+                            state.write().remove_poll(&poll.id);
                         }
-                        Err(err) => log::warn!("Error Stop Poll: {}", err),
+                        log::info!("Stopping Poll")
                     }
-                }
+                    Err(err) => log::warn!("Error Stop Poll: {}", err),
+                },
             }
         }
-        log::debug!("KEYBS: {:?}", state.read().tg.keyboards.len());
-        log::debug!("POLLS: {:?}", state.read().tg.polls.len());
-        log::debug!("MEALS: {:?}", state.read().tg.meals.len());
-        log::debug!("PLANS: {:?}", state.read().tg.plans.len());
+        // log::debug!("KEYBS: {:?}", state.read().tg.keyboards.len());
+        log::debug!("POLLS: {:?}", state.read().tg.polls);
+        // log::debug!("MEALS: {:?}", state.read().tg.meals.len());
+        // log::debug!("PLANS: {:?}", state.read().tg.plans.len());
         state.write().save();
     }
 }
