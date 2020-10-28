@@ -51,8 +51,8 @@ impl Plan {
                     Button::new(
                         meal.name.clone(),
                         ButtonKind::DisplayPlanMeal {
-                            meal: meal.clone(),
-                            plan: self.clone(),
+                            meal_id: meal.id.clone(),
+                            plan_id: self.id.clone(),
                         },
                     )
                 }).collect::<Vec<_>>()

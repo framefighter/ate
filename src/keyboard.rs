@@ -61,7 +61,7 @@ impl Keyboard {
     }
 
     pub fn remove(self, state: &StateLock) -> Self {
-        state.write().remove_keyboard(self.id.clone());
+        state.write().remove_keyboard(&self.id);
         self
     }
 }

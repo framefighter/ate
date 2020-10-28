@@ -41,8 +41,8 @@ impl State {
         Self { sh, tg, config }
     }
 
-    pub fn find_meal(&self, id: String) -> Option<&Meal> {
-        self.tg.meals.get(&id)
+    pub fn find_meal(&self, id: &String) -> Option<Meal> {
+        self.tg.meals.get(id).cloned()
     }
     pub fn meal_entry(&mut self, id: String) -> Entry<String, Meal> {
         self.tg.meals.entry(id)
@@ -83,14 +83,14 @@ impl State {
             .collect()
     }
 
-    pub fn find_keyboard(&self, id: String) -> Option<&Keyboard> {
-        self.tg.keyboards.get(&id)
+    pub fn find_keyboard(&self, id: &String) -> Option<Keyboard> {
+        self.tg.keyboards.get(id).cloned()
     }
-    pub fn find_poll(&self, id: String) -> Option<&Poll> {
-        self.tg.polls.get(&id)
+    pub fn find_poll(&self, id: &String) -> Option<Poll> {
+        self.tg.polls.get(id).cloned()
     }
-    pub fn find_plan(&self, chat_id: i64) -> Option<&Plan> {
-        self.tg.plans.get(&chat_id)
+    pub fn find_plan(&self, chat_id: &i64) -> Option<Plan> {
+        self.tg.plans.get(chat_id).cloned()
     }
 
     pub fn add_meal(&mut self, meal: Meal) {
@@ -106,56 +106,71 @@ impl State {
         self.tg.plans.insert(plan.chat_id, plan);
     }
 
-    pub fn remove_meal(&mut self, meal: &Meal) {
-        self.tg.meals.remove(&meal.id.clone());
+    pub fn remove_meal(&mut self, meal_id: &String) -> Option<Meal> {
+        self.tg.meals.remove(meal_id)
     }
-    pub fn remove_keyboard(&mut self, keyboard_id: String) {
-        self.tg.keyboards.remove(&keyboard_id);
+    pub fn remove_keyboard(&mut self, keyboard_id: &String) {
+        self.tg.keyboards.remove(keyboard_id);
     }
-    pub fn remove_poll(&mut self, id: String) {
-        self.tg.polls.remove(&id);
+    pub fn remove_poll(&mut self, id: &String) {
+        self.tg.polls.remove(id);
     }
-    pub fn remove_plan(&mut self, chat_id: i64) {
-        self.tg.plans.remove(&chat_id);
+    pub fn remove_plan(&mut self, chat_id: &i64) {
+        self.tg.plans.remove(chat_id);
     }
 
-    pub fn find_poll_by_poll_id(&mut self, poll_id: String) -> Option<&mut Poll> {
+    pub fn find_poll_by_poll_id(&self, poll_id: String) -> Option<Poll> {
         self.tg
             .polls
-            .iter_mut()
+            .iter()
             .map(|(_, p)| p)
             .find(|poll| poll.poll_id == poll_id)
+            .cloned()
     }
 
-    pub fn find_poll_by_meal_id(&mut self, meal_id: String) -> Option<&mut Poll> {
+    pub fn find_poll_by_meal_id(&self, meal_id: &String) -> Option<Poll> {
+        self.tg
+            .polls
+            .iter()
+            .map(|(_, p)| p)
+            .find(|poll| match &poll.poll_kind {
+                PollKind::Meal { meal_id: id, .. } => id == meal_id,
+                _ => false,
+            })
+            .cloned()
+    }
+
+    pub fn find_poll_by_meal_id_mut(&mut self, meal_id: &String) -> Option<&mut Poll> {
         self.tg
             .polls
             .iter_mut()
             .map(|(_, p)| p)
             .find(|poll| match &poll.poll_kind {
-                PollKind::Meal { meal_id: id, .. } => id == &meal_id,
+                PollKind::Meal { meal_id: id, .. } => id == meal_id,
                 _ => false,
             })
     }
 
-    pub fn find_poll_by_plan_id(&mut self, plan_id: String) -> Option<&mut Poll> {
+    pub fn find_poll_by_plan_id(&self, plan_id: &String) -> Option<Poll> {
         self.tg
             .polls
-            .iter_mut()
+            .iter()
             .map(|(_, p)| p)
             .find(|poll| match &poll.poll_kind {
                 PollKind::Plan {
                     plan: Plan { id, .. },
                     ..
-                } => id == &plan_id,
+                } => id == plan_id,
                 _ => false,
             })
+            .cloned()
     }
 
-    pub fn rate_meal(&mut self, meal: Meal, rating: u8) {
-        self.meal_entry(meal.id.clone())
-            .or_insert(meal)
-            .rate(Some(rating));
+    pub fn rate_meal(&mut self, meal_id: &String, rating: u8) -> Option<Meal> {
+        self.meal_entry(meal_id.clone()).and_modify(|meal| {
+            meal.rate(Some(rating));
+        });
+        self.find_meal(meal_id)
     }
 
     pub fn save(&mut self) {
@@ -194,7 +209,9 @@ impl State {
                     .map(|meal| {
                         Button::new(
                             meal.name.clone(),
-                            ButtonKind::DisplayListMeal { meal: meal.clone() },
+                            ButtonKind::DisplayListMeal {
+                                meal_id: meal.id.clone(),
+                            },
                         )
                     })
                     .collect::<Vec<_>>()

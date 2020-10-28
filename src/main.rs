@@ -80,15 +80,12 @@ async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery
                     let ids: Vec<_> = data.split(".").collect();
                     match *ids {
                         [keyboard_id, button_id] => {
-                            let keyboard_opt = state
-                                .write()
-                                .find_keyboard(keyboard_id.to_string())
-                                .cloned();
+                            let keyboard_opt = state.read().find_keyboard(&keyboard_id.to_string());
                             match keyboard_opt {
                                 Some(keyboard) => {
                                     if let Some(button) = keyboard.get_btn(button_id.to_string()) {
                                         button.kind.execute(&state, &cx).send(&state).await;
-                                        state.write().remove_keyboard(keyboard_id.to_string());
+                                        state.write().remove_keyboard(&keyboard_id.to_string());
                                     }
                                 }
                                 None => {
@@ -169,10 +166,7 @@ async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
 async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
     rx.map(|cx| (cx, state.clone()))
         .for_each_concurrent(None, |(cx, state)| async move {
-            let poll_opt = state
-                .write()
-                .find_poll_by_poll_id(cx.update.id.clone())
-                .cloned();
+            let poll_opt = state.read().find_poll_by_poll_id(cx.update.id.clone());
             match poll_opt {
                 Some(mut poll) => {
                     poll.handle_votes(&state, &cx).send(&state).await;

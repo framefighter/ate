@@ -130,7 +130,7 @@ impl RequestResult {
                     match send_request.send().await {
                         Ok(_) => {
                             if let Some(poll) = poll {
-                                state.write().remove_poll(poll.id.clone());
+                                state.write().remove_poll(&poll.id);
                             }
                             log::info!("Stopping Poll")
                         }

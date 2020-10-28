@@ -62,7 +62,7 @@ impl Poll {
                 meal_id,
                 reply_message_id,
             } => {
-                let meal_opt = state.write().find_meal(meal_id.to_string()).cloned();
+                let meal_opt = state.read().find_meal(meal_id);
                 match meal_opt {
                     None => {
                         log::warn!("No meal with id {} found for poll: {:?}", meal_id, self);
@@ -76,7 +76,7 @@ impl Poll {
                     Some(meal) => {
                         let total_votes = cx.update.total_voter_count;
                         if cx.update.is_closed {
-                            state.write().remove_poll(self.id.clone());
+                            state.write().remove_poll(&self.id);
                             if total_votes > 0 && !self.is_canceled {
                                 // someone voted and poll closed successfully ->
                                 //              update meal and save meal and poll
@@ -89,9 +89,13 @@ impl Poll {
                                     .collect();
                                 let avg = votes.iter().fold(0, |sum, vote| sum + vote.0 * vote.1)
                                     / total_votes;
-                                state.write().meal_entry(meal.id.clone()).or_insert(meal.clone()).rate(Some(
-                                    ((avg as u8) + meal.rating.unwrap_or(avg as u8)) / 2,
-                                ));
+                                state
+                                    .write()
+                                    .meal_entry(meal.id.clone())
+                                    .or_insert(meal.clone())
+                                    .rate(Some(
+                                        ((avg as u8) + meal.rating.unwrap_or(avg as u8)) / 2,
+                                    ));
                                 log::info!("Poll closed: {}", meal.name);
                                 // tell user that meal has been saved with new rating
                                 RequestResult::default()
@@ -120,10 +124,10 @@ impl Poll {
                                                         vec![Button::new(
                                                             "Rate with Poll".into(),
                                                             ButtonKind::PollRating {
-                                                                meal: meal.clone(),
+                                                                meal_id: meal.id.clone(),
                                                             },
                                                         )],
-                                                        button::save_meal_button_row(&meal),
+                                                        button::save_meal_button_row(&meal.id),
                                                     ])
                                                     .save(&state)
                                                     .inline_keyboard(),
@@ -138,11 +142,11 @@ impl Poll {
                         } else {
                             // poll still in progress
                             // remove poll keyboard
-                            state.write().remove_keyboard(self.keyboard_id.clone());
+                            state.write().remove_keyboard(&self.keyboard_id);
                             log::info!("Poll Vote...",);
                             if total_votes > 0 {
                                 let keyboard = Keyboard::new(self.chat_id)
-                                    .buttons(vec![button::save_poll_button_row(&meal, self)])
+                                    .buttons(vec![button::save_poll_button_row(&meal.id, &self.id)])
                                     .save(&state);
                                 // state.write().remove_poll(chat_id, self.id);
                                 self.keyboard_id = keyboard.id.clone();
@@ -162,7 +166,9 @@ impl Poll {
                                 let keyboard = Keyboard::new(self.chat_id)
                                     .buttons(vec![vec![Button::new(
                                         "Cancel Vote".to_uppercase(),
-                                        ButtonKind::CancelPollRating { meal: meal.clone() },
+                                        ButtonKind::CancelPollRating {
+                                            meal_id: meal.id.clone(),
+                                        },
                                     )]])
                                     .save(&state);
                                 // state.write().remove_poll(chat_id, self.id);

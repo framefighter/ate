@@ -227,7 +227,9 @@ impl Command {
                                     Some("How did it taste?".to_string()),
                                     Some(
                                         Keyboard::new(cx.chat_id())
-                                            .buttons(vec![button::rate_meal_button_row(0, &meal)])
+                                            .buttons(vec![button::rate_meal_button_row(
+                                                0, &meal.id,
+                                            )])
                                             .save(&state),
                                     ),
                                 ),
@@ -253,9 +255,11 @@ impl Command {
                                             .buttons(vec![
                                                 vec![Button::new(
                                                     "Rate with Poll".into(),
-                                                    ButtonKind::PollRating { meal: meal.clone() },
+                                                    ButtonKind::PollRating {
+                                                        meal_id: meal.id.clone(),
+                                                    },
                                                 )],
-                                                button::save_meal_button_row(&meal),
+                                                button::save_meal_button_row(&meal.id),
                                             ])
                                             .save(&state),
                                     ),
@@ -293,7 +297,7 @@ impl Command {
                                 );
                             }
                             for meal in meals {
-                                state.write().remove_meal(&meal);
+                                state.write().remove_meal(&meal.id);
                                 request.add(meal.request(&cx, Some(format!("Deleted!")), None));
                             }
                         }
@@ -305,13 +309,12 @@ impl Command {
                             } else {
                                 state
                                     .read()
-                                    .find_plan(cx.chat_id())
-                                    .cloned()
+                                    .find_plan(&cx.chat_id())
                                     .unwrap_or(Plan::new(cx.chat_id(), vec![]))
                             };
                             state.write().add_plan(meal_plan.clone());
                             let keyboard = Keyboard::new(cx.chat_id())
-                                .buttons(poll_plan_buttons(meal_plan.clone()))
+                                .buttons(poll_plan_buttons(&meal_plan))
                                 .save(&state);
                             if meal_plan.days < 2 {
                                 request.message(cx.bot.send_message(
@@ -600,10 +603,12 @@ impl PhotoCommand {
                                                                 vec![Button::new(
                                                                     "Rate with Poll".into(),
                                                                     ButtonKind::PollRating {
-                                                                        meal: meal.clone(),
+                                                                        meal_id: meal.id.clone(),
                                                                     },
                                                                 )],
-                                                                button::save_meal_button_row(&meal),
+                                                                button::save_meal_button_row(
+                                                                    &meal.id,
+                                                                ),
                                                             ])
                                                             .save(&state),
                                                     ),
