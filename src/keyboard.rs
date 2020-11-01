@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 
 use crate::button::Button;
+use crate::state::HasId;
 use crate::StateLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -10,6 +11,15 @@ pub struct Keyboard {
     pub id: String,
     pub buttons: Vec<Vec<Button>>,
     pub chat_id: i64,
+}
+
+impl HasId for Keyboard {
+    fn id(&self) -> String {
+        self.id.clone()
+    }
+    fn chat_id(&self) -> i64 {
+        self.chat_id
+    }
 }
 
 impl Keyboard {
@@ -55,13 +65,11 @@ impl Keyboard {
 
     pub fn save(self, state: &StateLock) -> Self {
         if self.buttons.iter().flatten().count() > 0 {
-            state.write().add_keyboard(self.clone());
+            match state.write().add(&self) {
+                Ok(_) => log::debug!("Saved keyboard"),
+                Err(_) => log::warn!("Error saving keyboard"),
+            }
         }
-        self
-    }
-
-    pub fn remove(self, state: &StateLock) -> Self {
-        state.write().remove_keyboard(&self.id);
         self
     }
 }

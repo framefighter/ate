@@ -6,8 +6,7 @@ use crate::meal::Meal;
 
 #[derive(Debug)]
 pub enum DBKeys {
-    State,
-    MealsChat,
+    Store,
     Whitelist,
 }
 
@@ -19,18 +18,16 @@ impl fmt::Display for DBKeys {
 
 pub struct StoreHandler {
     pub db: pickledb::PickleDb,
-    pub meal_db: pickledb::PickleDb,
 }
 
 impl StoreHandler {
     pub fn new(do_backup: bool) -> Self {
         let mut sh = StoreHandler {
-            db: Self::create(DBKeys::State),
-            meal_db: Self::create(DBKeys::MealsChat),
+            db: Self::create(DBKeys::Store),
         };
         sh.create_list(DBKeys::Whitelist);
         if do_backup {
-            sh.backup(DBKeys::State);
+            sh.backup(DBKeys::Store);
         }
         sh
     }
@@ -80,7 +77,11 @@ impl StoreHandler {
             Err(err) => {
                 log::warn!("{}", err);
                 log::info!("Creating new {} database!", path);
-                PickleDb::new(path, PickleDbDumpPolicy::AutoDump, SerializationMethod::Json)
+                PickleDb::new(
+                    path,
+                    PickleDbDumpPolicy::AutoDump,
+                    SerializationMethod::Json,
+                )
             }
         }
     }

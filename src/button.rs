@@ -46,58 +46,23 @@ impl Button {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum ButtonKind {
-    DisplayPlanMeal {
-        meal_id: String,
-        plan_id: String,
-    },
-    DisplayListMeal {
-        meal_id: String,
-    },
+    DisplayPlanMeal { meal_id: String, plan_id: String },
+    DisplayListMeal { meal_id: String },
     ShowList,
-    ShowPlan {
-        plan_id: String,
-    },
-    RerollPlan {
-        plan_id: String,
-    },
-    ClearVotes {
-        plan_id: String,
-    },
-    RemovePlanPoll {
-        plan_id: String,
-    },
-    SaveMeal {
-        meal_id: String,
-    },
-    RateMeal {
-        meal_id: String,
-        rating: u8,
-    },
-    RemoveMeal {
-        meal_id: String,
-    },
-    DeleteMeal {
-        meal_id: String,
-    },
-    PollRating {
-        meal_id: String,
-    },
-    SavePollRating {
-        meal_id: String,
-        poll_id: String,
-    },
-    CancelPollRating {
-        poll_id: String,
-    },
-    CommandButton {
-        command: Command,
-    },
+    ShowPlan,
+    RerollPlan,
+    ClearVotes,
+    RemovePlanPoll { plan_id: String },
+    SaveMeal { meal_id: String },
+    RateMeal { meal_id: String, rating: u8 },
+    RemoveMeal { meal_id: String },
+    DeleteMeal { meal_id: String },
+    PollRating { meal_id: String },
+    SavePollRating { meal_id: String, poll_id: String },
+    CancelPollRating { poll_id: String },
+    CommandButton { command: Command },
     PinMessage,
     DeleteMessage,
-    #[serde(skip_serializing, skip_deserializing)]
-    Request {
-        request: RequestResult,
-    },
 }
 
 impl ButtonKind {
@@ -152,14 +117,17 @@ impl ButtonKind {
             None => 0,
         };
         match button {
-            ButtonKind::Request { request } => request.clone(),
             ButtonKind::SaveMeal { meal_id } => {
-                let meal_opt = state.read().find_meal(meal_id);
+                let meal_opt: Option<Meal> = state.read().get(meal_id);
                 match meal_opt {
-                    Some(meal) => {
-                        state.write().add_meal(meal.clone());
-                        Self::edit_callback_text(&cx, format!("{}\n\nSaved!", meal), None)
-                    }
+                    Some(meal) => Self::edit_callback_text(
+                        &cx,
+                        match state.write().add(&meal) {
+                            Ok(meal) => format!("{}\n\nSaved!", meal),
+                            Err(_) => format!("No Meal saved"),
+                        },
+                        None,
+                    ),
                     None => Self::edit_callback_text(
                         &cx,
                         "Failed to save, meal not found!".to_string(),
@@ -176,18 +144,19 @@ impl ButtonKind {
                 }
                 result
             }
-            ButtonKind::RemoveMeal { meal_id } => {
-                state.write().remove_meal(meal_id);
-                Self::run(&ButtonKind::DeleteMessage, state, cx)
-            }
+            ButtonKind::RemoveMeal { meal_id } => match state.write().remove(meal_id) {
+                Ok(_) => Self::run(&ButtonKind::DeleteMessage, state, cx),
+                Err(_) => Self::edit_callback_text(&cx, format!("Meal not found!"), None),
+            },
             ButtonKind::RateMeal { meal_id, rating } => {
-                let meal_opt = state.write().rate_meal(meal_id, rating.clone());
+                let meal_res = state.write().modify(meal_id, |mut meal: Meal| {
+                    meal.rate(Some(rating.clone())).clone()
+                });
                 Self::edit_callback_text(
                     &cx,
-                    if let Some(meal) = meal_opt {
-                        format!("{}\n\nChange rating or save your meal!", meal.clone())
-                    } else {
-                        format!("No meal with to rate!")
+                    match meal_res {
+                        Ok(meal) => format!("{}\n\nChange rating or save your meal!", meal.clone()),
+                        Err(_) => format!("No meal with to rate!"),
                     },
                     Some(
                         Keyboard::new(chat_id)
@@ -200,18 +169,14 @@ impl ButtonKind {
                     ),
                 )
             }
-            ButtonKind::DeleteMeal { meal_id } => {
-                let meal_opt = state.write().remove_meal(meal_id);
-                if let Some(meal) = meal_opt {
-                    Self::edit_callback_text(&cx, format!("{}\n\nRemoved!", meal), None)
-                } else {
-                    Self::edit_callback_text(&cx, format!("No meal to delete found!"), None)
-                }
-            }
+            ButtonKind::DeleteMeal { meal_id } => match state.write().remove(meal_id) {
+                Ok(meal) => Self::edit_callback_text(&cx, format!("{}\n\nRemoved!", meal), None),
+                Err(_) => Self::edit_callback_text(&cx, format!("No meal to delete found!"), None),
+            },
             ButtonKind::DisplayPlanMeal { meal_id, plan_id } => {
                 let mut request = RequestResult::default();
                 if let Some(message) = &cx.update.message {
-                    let plan_opt = state.read().find_plan(&chat_id);
+                    let plan_opt: Option<Plan> = state.read().get(plan_id);
                     if let Some(plan) = plan_opt {
                         let keyboard = Keyboard::new(chat_id)
                             .buttons(poll_plan_buttons(&plan))
@@ -222,7 +187,7 @@ impl ButtonKind {
                                 .reply_markup(keyboard.inline_keyboard()),
                         ));
                     }
-                    let meal_opt = state.read().find_meal(meal_id);
+                    let meal_opt: Option<Meal> = state.read().get(meal_id);
                     if let Some(meal) = meal_opt {
                         request.message(
                             cx.bot
@@ -250,8 +215,8 @@ impl ButtonKind {
                 }
                 request
             }
-            ButtonKind::ShowPlan { plan_id } => {
-                let plan_opt = state.read().find_plan(&chat_id);
+            ButtonKind::ShowPlan => {
+                let plan_opt: Option<Plan> = state.read().find(chat_id, |_: &Plan| true);
                 if let Some(plan) = plan_opt {
                     Self::edit_callback_text(
                         &cx,
@@ -273,16 +238,31 @@ impl ButtonKind {
                     )
                 }
             }
-            ButtonKind::RerollPlan { plan_id } => {
+            ButtonKind::RerollPlan => {
                 let mut request = RequestResult::default();
                 if let Some(message) = &cx.update.message {
-                    let plan_opt = state.read().find_plan(&chat_id);
-                    if let Some(plan) = plan_opt {
-                        let meals = state.read().get_meals(chat_id);
+                    let plan_v: Vec<Plan> = state.read().all_chat(chat_id);
+                    if let Some(plan) = plan_v.first() {
+                        let meals: Vec<Meal> = state.read().all_chat(chat_id);
                         let meal_plan = Plan::gen(chat_id, meals, plan.days);
-                        state.write().remove_plan(&plan.chat_id);
-                        state.write().add_plan(meal_plan.clone());
-                        let poll_opt = state.read().find_poll_by_plan_id(&plan.id);
+                        let answers = meal_plan.answers();
+                        match state
+                            .write()
+                            .modify(&plan.id, move |_: Plan| meal_plan.clone())
+                        {
+                            Ok(plan) => log::debug!("Modified Plan: {:?}", plan),
+                            Err(_) => log::warn!("Error Modifing Plan: {:?}", plan),
+                        }
+                        let poll_opt: Option<Poll> =
+                            state
+                                .read()
+                                .find(chat_id, |poll: &Poll| match &poll.poll_kind {
+                                    PollKind::Plan {
+                                        plan: Plan { id, .. },
+                                        ..
+                                    } => id == &plan.id,
+                                    _ => false,
+                                });
                         if let Some(poll) = poll_opt {
                             request.add(RequestKind::StopPoll(
                                 cx.bot.stop_poll(poll.chat_id.clone(), poll.message_id),
@@ -306,7 +286,7 @@ impl ButtonKind {
                                         format!(
                                         "Plan:\n(Click to vote or use buttons to get meal info)"
                                     ),
-                                        meal_plan.answers(),
+                                        answers,
                                     )
                                     .reply_markup(ReplyMarkup::InlineKeyboardMarkup(
                                         keyboard.inline_keyboard(),
@@ -317,18 +297,27 @@ impl ButtonKind {
                 }
                 request
             }
-            ButtonKind::ClearVotes { plan_id } => {
+            ButtonKind::ClearVotes => {
                 let mut request = RequestResult::default();
                 if let Some(message) = &cx.update.message {
-                    let poll_opt = state.read().find_poll_by_plan_id(&plan_id);
-                    if let Some(poll) = poll_opt {
-                        request.add(RequestKind::StopPoll(
-                            cx.bot.stop_poll(poll.chat_id.clone(), poll.message_id),
-                            Some(poll),
-                        ));
-                    }
-                    let plan_opt = state.read().find_plan(&chat_id);
-                    if let Some(plan) = plan_opt {
+                    let plan_v: Vec<Plan> = state.read().all_chat(chat_id);
+                    if let Some(plan) = plan_v.first() {
+                        let poll_opt: Option<Poll> =
+                            state
+                                .read()
+                                .find(chat_id, |poll: &Poll| match &poll.poll_kind {
+                                    PollKind::Plan {
+                                        plan: Plan { id, .. },
+                                        ..
+                                    } => id == &plan.id,
+                                    _ => false,
+                                });
+                        if let Some(poll) = poll_opt {
+                            request.add(RequestKind::StopPoll(
+                                cx.bot.stop_poll(poll.chat_id.clone(), poll.message_id),
+                                Some(poll),
+                            ));
+                        }
                         let mut keyboard = Keyboard::new(chat_id);
                         let keyboard_id = keyboard.id.clone();
                         let poll_kind = PollKind::Plan { plan: plan.clone() };
@@ -358,7 +347,15 @@ impl ButtonKind {
             }
             ButtonKind::RemovePlanPoll { plan_id } => {
                 let mut request = RequestResult::default();
-                let poll_opt = state.read().find_poll_by_plan_id(&plan_id);
+                let poll_opt: Option<Poll> = state.read().find(chat_id, |poll: &Poll| match &poll
+                    .poll_kind
+                {
+                    PollKind::Plan {
+                        plan: Plan { id, .. },
+                        ..
+                    } => id == plan_id,
+                    _ => false,
+                });
                 if let Some(poll) = poll_opt {
                     request
                         .add(RequestKind::StopPoll(
@@ -379,7 +376,7 @@ impl ButtonKind {
                     ]])
                     .save(state)
                     .inline_keyboard();
-                let meal_opt = state.read().find_meal(meal_id);
+                let meal_opt: Option<Meal> = state.read().get(meal_id);
                 if let Some(meal) = meal_opt {
                     Self::edit_callback_text(&cx, format!("{}", meal), Some(keyboard))
                 } else {
@@ -387,7 +384,7 @@ impl ButtonKind {
                 }
             }
             ButtonKind::ShowList => {
-                let meal_buttons = state.read().meal_buttons(chat_id);
+                let meal_buttons = meal_buttons(state, chat_id);
                 if meal_buttons.len() > 0 {
                     Self::edit_callback_text(
                         &cx,
@@ -421,7 +418,7 @@ impl ButtonKind {
                         .into_iter()
                         .map(|r| "⭐".repeat(r as usize))
                         .collect();
-                    let meal_opt = state.read().find_meal(meal_id);
+                    let meal_opt: Option<Meal> = state.read().get(meal_id);
                     if let Some(meal) = meal_opt {
                         result.add(RequestKind::EditMessage(cx.bot.edit_message_text(
                             message.chat_id(),
@@ -462,7 +459,7 @@ impl ButtonKind {
             }
             ButtonKind::SavePollRating { poll_id, .. } => {
                 let mut result = RequestResult::default();
-                match state.read().find_poll(&poll_id) {
+                match state.read().get(&poll_id) {
                     Some(
                         poll
                         @
@@ -482,16 +479,18 @@ impl ButtonKind {
             }
             ButtonKind::CancelPollRating { poll_id } => {
                 let mut result = RequestResult::default();
-                state
+                match state
                     .write()
-                    .poll_entry(poll_id.to_string())
-                    .and_modify(|poll| {
-                        poll.is_canceled = true;
+                    .modify(poll_id, |mut poll: Poll| poll.cancel().clone())
+                {
+                    Ok(poll) => {
                         result.add(RequestKind::StopPoll(
                             cx.bot.stop_poll(poll.chat_id.clone(), poll.message_id),
                             Some(poll.clone()),
                         ));
-                    });
+                    }
+                    _ => {}
+                }
                 result
             }
         }
@@ -550,18 +549,8 @@ pub fn poll_plan_buttons(plan: &Plan) -> Vec<Vec<Button>> {
     vec![
         meal_info,
         vec![vec![
-            Button::new(
-                "Reroll".to_string(),
-                ButtonKind::RerollPlan {
-                    plan_id: plan.id.clone(),
-                },
-            ),
-            Button::new(
-                "Clear".to_string(),
-                ButtonKind::ClearVotes {
-                    plan_id: plan.id.clone(),
-                },
-            ),
+            Button::new("Reroll".to_string(), ButtonKind::RerollPlan),
+            Button::new("Clear".to_string(), ButtonKind::ClearVotes),
             Button::new(
                 "Exit".to_string(),
                 ButtonKind::RemovePlanPoll {
@@ -571,4 +560,25 @@ pub fn poll_plan_buttons(plan: &Plan) -> Vec<Vec<Button>> {
         ]],
     ]
     .concat()
+}
+
+pub fn meal_buttons(state: &StateLock, chat_id: i64) -> Vec<Vec<Button>> {
+    state
+        .read()
+        .all_chat::<Meal>(chat_id)
+        .as_slice()
+        .chunks(4)
+        .map(|row| {
+            row.iter()
+                .map(|meal| {
+                    Button::new(
+                        meal.name.clone(),
+                        ButtonKind::DisplayListMeal {
+                            meal_id: meal.id.clone(),
+                        },
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }

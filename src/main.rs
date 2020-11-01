@@ -4,7 +4,17 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::sync::Arc;
-use teloxide::{dispatching::*, prelude::*, types::*, utils::command::BotCommand, BotBuilder};
+use teloxide::{
+    dispatching::Dispatcher,
+    prelude::*,
+    types::{
+        CallbackQuery, InlineQuery, InlineQueryResult, InlineQueryResultArticle,
+        InlineQueryResultCachedPhoto, InputMessageContent, InputMessageContentText,
+        Poll as TelePoll,
+    },
+    utils::command::BotCommand,
+    BotBuilder,
+};
 
 mod button;
 mod db;
@@ -13,9 +23,11 @@ use meal::Meal;
 mod command;
 use command::{Command, PhotoCommand};
 mod keyboard;
+use keyboard::Keyboard;
 mod state;
 use state::State;
 mod poll;
+use poll::Poll;
 mod request;
 use request::{RequestKind, RequestResult};
 mod plan;
@@ -78,9 +90,11 @@ async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery
                     ..
                 } => {
                     let ids: Vec<_> = data.split(".").collect();
+                    let chat_id = message.chat_id();
                     match *ids {
                         [keyboard_id, button_id] => {
-                            let keyboard_opt = state.read().find_keyboard(&keyboard_id.to_string());
+                            let keyboard_opt: Option<Keyboard> =
+                                state.read().get(&keyboard_id.to_string());
                             match keyboard_opt {
                                 Some(keyboard) => {
                                     if let Some(button) = keyboard.get_btn(button_id.to_string()) {
@@ -96,16 +110,16 @@ async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery
                                                 .show_alert(true),
                                         ))
                                         .add(RequestKind::EditReplyMarkup(
-                                            cx.bot.edit_message_reply_markup(
-                                                message.chat_id(),
-                                                message.id,
-                                            ),
+                                            cx.bot.edit_message_reply_markup(chat_id, message.id),
                                         ))
                                         .send(&state)
                                         .await;
                                 }
                             }
-                            state.write().remove_keyboard(&keyboard_id.to_string());
+                            match state.write().remove(&keyboard_id.to_string()) {
+                                Ok(_) => log::debug!("Removed keyboard"),
+                                Err(_) => log::warn!("Error removing keyboard"),
+                            }
                         }
                         [..] => {}
                     }
@@ -119,12 +133,12 @@ async fn handle_callback(state: StateLock, rx: DispatcherHandlerRx<CallbackQuery
         .await;
 }
 
-fn meal_inline(meal: Meal) -> InlineQueryResult {
+fn meal_inline(meal: &Meal) -> InlineQueryResult {
     if let Some(photo) = meal.photos.get(0) {
         InlineQueryResult::CachedPhoto(
             InlineQueryResultCachedPhoto::new(meal.id.to_string(), photo.file_id.clone())
                 .caption(format!("{}", meal))
-                .title(meal.name),
+                .title(meal.name.clone()),
         )
     } else {
         InlineQueryResult::Article(
@@ -143,11 +157,11 @@ async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
         .for_each_concurrent(None, |(cx, state)| async move {
             let query = cx.update.query;
             let mut results: Vec<InlineQueryResult> = vec![];
-            let meals_db: Vec<Meal> = state.read().get_all_meals();
+            let meals_db: Vec<Meal> = state.read().all();
             meals_db.iter().for_each(|meal| {
                 let matcher = SkimMatcherV2::default();
                 if matcher.fuzzy_match(&meal.name, &query).is_some() || query.len() == 0 {
-                    results.push(meal_inline(meal.clone()));
+                    results.push(meal_inline(meal));
                 }
             });
             if let Err(err) = cx
@@ -163,12 +177,14 @@ async fn handle_inline(state: StateLock, rx: DispatcherHandlerRx<InlineQuery>) {
         .await;
 }
 
-async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<Poll>) {
+async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<TelePoll>) {
     rx.map(|cx| (cx, state.clone()))
         .for_each_concurrent(None, |(cx, state)| async move {
-            let poll_opt = state.read().find_poll_by_poll_id(cx.update.id.clone());
+            let poll_opt: Option<Poll> = state
+                .read()
+                .find_all(|poll: &Poll| poll.poll_id == cx.update.id);
             match poll_opt {
-                Some(mut poll) => {
+                Some(poll) => {
                     poll.handle_votes(&state, &cx).send(&state).await;
                 }
                 None => {
@@ -198,7 +214,6 @@ async fn run() {
     let config_str = fs::read_to_string("./config.json").expect("No config file found!");
     let config: Config = serde_json::from_str(&config_str).expect("Wrong config file!");
     let state = Arc::new(RwLock::new(State::new(config.clone())));
-    state.write().load();
     let bot = BotBuilder::new().token(config.token).build();
     let state_2 = state.clone();
     let state_3 = state.clone();

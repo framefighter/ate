@@ -5,6 +5,7 @@ use teloxide::types::{InputFile, PhotoSize, ReplyMarkup};
 
 use crate::keyboard::Keyboard;
 use crate::request::RequestKind;
+use crate::state::HasId;
 use crate::{ContextMessage, StateLock};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,13 +18,24 @@ pub struct Meal {
     pub photos: Vec<PhotoSize>,
     pub chat_id: i64,
     pub user_id: i32,
+    pub username: String,
+}
+
+impl HasId for Meal {
+    fn id(&self) -> String {
+        self.id.clone()
+    }
+    fn chat_id(&self) -> i64 {
+        self.chat_id
+    }
 }
 
 impl Meal {
-    pub fn new(name: &String, chat_id: i64, user_id: i32) -> Self {
+    pub fn new(name: &String, chat_id: i64, user_id: i32, username: String) -> Self {
         Self {
             chat_id,
             user_id,
+            username,
             id: nanoid!(),
             name: name.to_string(),
             rating: None,
@@ -64,7 +76,10 @@ impl Meal {
     }
 
     pub fn save(&self, state: &StateLock) -> &Self {
-        state.write().add_meal(self.clone());
+        match state.write().add(self) {
+            Ok(_) => log::debug!("Saved meal"),
+            Err(_) => log::warn!("Error saving meal"),
+        }
         self
     }
 

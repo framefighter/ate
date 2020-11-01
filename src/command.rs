@@ -7,7 +7,7 @@ use teloxide::utils::command::{BotCommand, ParseError};
 use tokio::fs::File;
 
 use crate::button;
-use crate::button::{poll_plan_buttons, Button, ButtonKind};
+use crate::button::{meal_buttons, poll_plan_buttons, Button, ButtonKind};
 use crate::keyboard::Keyboard;
 use crate::meal::Meal;
 use crate::plan::Plan;
@@ -219,7 +219,8 @@ impl Command {
                             request.message(cx.answer(Command::descriptions()));
                         }
                         Command::NewMeal(meal_name) => {
-                            let meal = Meal::new(meal_name, cx.chat_id(), *user_id);
+                            let meal =
+                                Meal::new(meal_name, cx.chat_id(), *user_id, username.clone());
                             meal.save(&state);
                             request.add(
                                 meal.request(
@@ -241,7 +242,8 @@ impl Command {
                             tags,
                             url,
                         } => {
-                            let mut meal = Meal::new(meal_name, cx.chat_id(), *user_id);
+                            let mut meal =
+                                Meal::new(meal_name, cx.chat_id(), *user_id, username.clone());
                             meal.rate(rating.clone())
                                 .tag(tags.clone().unwrap_or_default())
                                 .url(url.clone())
@@ -267,9 +269,9 @@ impl Command {
                             );
                         }
                         Command::Get(meal_name) => {
-                            let meals = state
-                                .read()
-                                .get_meals_by_name(cx.chat_id(), meal_name.clone());
+                            let meals = state.read().filter(cx.chat_id(), |meal: &Meal| {
+                                meal.name.to_uppercase() == meal_name.to_uppercase()
+                            });
                             for meal in meals {
                                 request.add(
                                     meal.request(
@@ -288,31 +290,40 @@ impl Command {
                             }
                         }
                         Command::Remove(meal_name) => {
-                            let meals = state
-                                .read()
-                                .get_meals_by_name(cx.chat_id(), meal_name.clone());
+                            let meals = state.read().filter(cx.chat_id(), |meal: &Meal| {
+                                meal.name.to_uppercase() == meal_name.to_uppercase()
+                            });
                             if meals.len() == 0 {
                                 request.message(
                                     cx.answer(format!("No meal with name {} found!", meal_name)),
                                 );
                             }
                             for meal in meals {
-                                state.write().remove_meal(&meal.id);
-                                request.add(meal.request(&cx, Some(format!("Deleted!")), None));
+                                request.add(meal.request(
+                                    &cx,
+                                    Some(match state.write().remove(&meal.id) {
+                                        Ok(_) => format!("Deleted!"),
+                                        Err(_) => format!("Not Deleted!"),
+                                    }),
+                                    None,
+                                ));
                             }
                         }
                         Command::Plan(days_opt) => {
-                            let meals = state.read().get_meals(cx.chat_id());
+                            let meals: Vec<Meal> = state.read().all_chat(cx.chat_id());
                             let meal_count = meals.len();
                             let meal_plan = if let Some(days) = days_opt {
                                 Plan::gen(cx.chat_id(), meals, *days)
                             } else {
                                 state
                                     .read()
-                                    .find_plan(&cx.chat_id())
+                                    .find(cx.chat_id(), |plan: &Plan| plan.chat_id == cx.chat_id())
                                     .unwrap_or(Plan::new(cx.chat_id(), vec![]))
                             };
-                            state.write().add_plan(meal_plan.clone());
+                            match state.write().add(&meal_plan) {
+                                Ok(_) => log::info!("Saving plan: {:?}", meal_plan),
+                                Err(_) => log::warn!("Error saving plan: {:?}", meal_plan),
+                            }
                             if meal_plan.days < 2 {
                                 request.message(cx.bot.send_message(
                                     cx.chat_id(),
@@ -330,9 +341,9 @@ impl Command {
                                     plan: meal_plan.clone(),
                                 };
                                 let poll_builder =
-                                    Poll::build(cx.chat_id(), 
-                                    poll_kind.clone(), keyboard_id);
-                                    keyboard = keyboard.buttons(poll_plan_buttons(&meal_plan)).save(&state);
+                                    Poll::build(cx.chat_id(), poll_kind.clone(), keyboard_id);
+                                keyboard =
+                                    keyboard.buttons(poll_plan_buttons(&meal_plan)).save(&state);
                                 request.add(RequestKind::Poll(
                                     cx.bot
                                         .send_poll(
@@ -343,7 +354,7 @@ impl Command {
                                         .reply_markup(ReplyMarkup::InlineKeyboardMarkup(
                                             keyboard.inline_keyboard(),
                                         )),
-                                        poll_builder,    
+                                        poll_builder,
                                     ));
                             } else {
                                 if meal_count < days_opt.unwrap_or(0) {
@@ -361,7 +372,7 @@ impl Command {
                         }
 
                         Command::List => {
-                            let meal_buttons = state.read().meal_buttons(cx.chat_id());
+                            let meal_buttons: Vec<Vec<Button>> = meal_buttons(state, cx.chat_id());
                             if meal_buttons.len() > 0 {
                                 request.message(
                                     cx.answer(format!("List:")).reply_markup(
@@ -378,19 +389,20 @@ impl Command {
                             }
                         }
                         Command::Rename(meal_name, new_name) => {
-                            let meals = state
-                                .read()
-                                .get_meals_by_name(cx.chat_id(), meal_name.clone());
+                            let meals = state.read().filter(cx.chat_id(), |meal: &Meal| {
+                                meal.name.to_uppercase() == meal_name.to_uppercase()
+                            });
                             if meals.len() == 0 {
                                 request
                                     .message(cx.answer(format!("No meal with name {}", meal_name)));
                             }
                             for meal in meals {
-                                state
-                                    .write()
-                                    .meal_entry(meal.id.clone())
-                                    .or_insert(meal.clone())
-                                    .rename(new_name.to_string());
+                                match state.write().modify(&meal.id, |mut meal: Meal| {
+                                    meal.rename(new_name.clone()).clone()
+                                }) {
+                                    Ok(_) => log::debug!("Modified meal: {}", meal),
+                                    Err(_) => log::debug!("Error Modifiing meal: {}", meal),
+                                }
                                 request.add(meal.request(
                                     &cx,
                                     Some(format!("Renamed meal {} to {}", meal, new_name)),
@@ -400,19 +412,20 @@ impl Command {
                             }
                         }
                         Command::Rate(meal_name, new_rating) => {
-                            let meals = state
-                                .read()
-                                .get_meals_by_name(cx.chat_id(), meal_name.clone());
+                            let meals = state.read().filter(cx.chat_id(), |meal: &Meal| {
+                                meal.name.to_uppercase() == meal_name.to_uppercase()
+                            });
                             if meals.len() == 0 {
                                 request
                                     .message(cx.answer(format!("No meal with name {}", meal_name)));
                             }
                             for meal in meals {
-                                state
-                                    .write()
-                                    .meal_entry(meal.id.clone())
-                                    .or_insert(meal.clone())
-                                    .rate(Some(new_rating.clone()));
+                                match state.write().modify(&meal.id, |mut meal: Meal| {
+                                    meal.rate(Some(*new_rating)).clone()
+                                }) {
+                                    Ok(_) => log::debug!("Modified meal: {}", meal),
+                                    Err(_) => log::debug!("Error Modifiing meal: {}", meal),
+                                }
                                 request.add(meal.request(
                                     &cx,
                                     Some(format!(
@@ -429,19 +442,20 @@ impl Command {
                             }
                         }
                         Command::Tag(meal_name, new_tags) => {
-                            let meals = state
-                                .read()
-                                .get_meals_by_name(cx.chat_id(), meal_name.clone());
+                            let meals = state.read().filter(cx.chat_id(), |meal: &Meal| {
+                                meal.name.to_uppercase() == meal_name.to_uppercase()
+                            });
                             if meals.len() == 0 {
                                 request
                                     .message(cx.answer(format!("No meal with name {}", meal_name)));
                             }
                             for meal in meals {
-                                state
-                                    .write()
-                                    .meal_entry(meal.id.clone())
-                                    .or_insert(meal.clone())
-                                    .tag(new_tags.clone());
+                                match state.write().modify(&meal.id, |mut meal: Meal| {
+                                    meal.tag(new_tags.clone()).clone()
+                                }) {
+                                    Ok(_) => log::debug!("Modified meal: {}", meal),
+                                    Err(_) => log::debug!("Error Modifiing meal: {}", meal),
+                                }
                                 request.add(meal.request(
                                     &cx,
                                     Some(format!("Added tags to meal {}: {:?}", meal, new_tags)),
@@ -451,9 +465,9 @@ impl Command {
                             }
                         }
                         Command::TagRemove(meal_name, rem_tags) => {
-                            let meals = state
-                                .read()
-                                .get_meals_by_name(cx.chat_id(), meal_name.clone());
+                            let meals = state.read().filter(cx.chat_id(), |meal: &Meal| {
+                                meal.name.to_uppercase() == meal_name.to_uppercase()
+                            });
                             if meals.len() == 0 {
                                 request
                                     .message(cx.answer(format!("No meal with name {}", meal_name)));
@@ -466,11 +480,12 @@ impl Command {
                                         new_tags.push(tag);
                                     }
                                 }
-                                state
-                                    .write()
-                                    .meal_entry(meal.id.clone())
-                                    .or_insert(meal.clone())
-                                    .set_tags(new_tags.clone());
+                                match state.write().modify(&meal.id, |mut meal: Meal| {
+                                    meal.set_tags(new_tags.clone()).clone()
+                                }) {
+                                    Ok(_) => log::debug!("Modified meal: {}", meal),
+                                    Err(_) => log::debug!("Error Modifiing meal: {}", meal),
+                                }
                                 request.add(meal.request(
                                     &cx,
                                     Some(format!(
@@ -483,19 +498,21 @@ impl Command {
                             }
                         }
                         Command::Ref(meal_name, new_reference) => {
-                            let meals = state
-                                .read()
-                                .get_meals_by_name(cx.chat_id(), meal_name.clone());
+                            let meals = state.read().filter(cx.chat_id(), |meal: &Meal| {
+                                meal.name.to_uppercase() == meal_name.to_uppercase()
+                            });
                             if meals.len() == 0 {
                                 request
                                     .message(cx.answer(format!("No meal with name {}", meal_name)));
                             }
                             for meal in meals {
-                                state
-                                    .write()
-                                    .meal_entry(meal.id.clone())
-                                    .or_insert(meal.clone())
-                                    .url(Some(new_reference.clone()));
+                                match state.write().modify(&meal.id, |mut meal: Meal| {
+                                    meal.url(Some(new_reference.clone())).clone()
+                                }) {
+                                    Ok(_) => log::debug!("Modified meal: {}", meal),
+                                    Err(_) => log::debug!("Error Modifiing meal: {}", meal),
+                                }
+
                                 request.add(meal.request(
                                     &cx,
                                     Some(format!(
@@ -591,7 +608,12 @@ impl PhotoCommand {
                                             ),
                                             Err(err) => log::warn!("{}", err),
                                         }
-                                        let mut meal = Meal::new(meal_name, cx.chat_id(), *user_id);
+                                        let mut meal = Meal::new(
+                                            meal_name,
+                                            cx.chat_id(),
+                                            *user_id,
+                                            username.clone(),
+                                        );
                                         meal.rate(rating.clone())
                                             .tag(tags.clone().unwrap_or_default())
                                             .url(url.clone())
@@ -646,9 +668,10 @@ impl PhotoCommand {
                                             ),
                                             Err(err) => log::warn!("{}", err),
                                         }
-                                        let meals = state
-                                            .read()
-                                            .get_meals_by_name(cx.chat_id(), meal_name.clone());
+                                        let meals =
+                                            state.read().filter(cx.chat_id(), |meal: &Meal| {
+                                                meal.name.to_uppercase() == meal_name.to_uppercase()
+                                            });
                                         if meals.len() == 0 {
                                             RequestResult::default()
                                                 .message(cx.answer(format!(
@@ -659,11 +682,16 @@ impl PhotoCommand {
                                                 .await;
                                         }
                                         for meal in meals {
-                                            state
+                                            match state
                                                 .write()
-                                                .meal_entry(meal.id.clone())
-                                                .or_insert(meal.clone())
-                                                .photo(photo.clone());
+                                                .modify(&meal.id, |mut meal: Meal| {
+                                                    meal.photo(photo.clone()).clone()
+                                                }) {
+                                                Ok(_) => log::debug!("Modified meal: {}", meal),
+                                                Err(_) => {
+                                                    log::debug!("Error Modifiing meal: {}", meal)
+                                                }
+                                            }
                                             RequestResult::default()
                                                 .add(meal.request(
                                                     &cx,

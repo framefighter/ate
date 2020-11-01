@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::button::{Button, ButtonKind};
 use crate::meal::Meal;
+use crate::state::HasId;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Plan {
@@ -11,6 +12,15 @@ pub struct Plan {
     pub days: usize,
     pub chat_id: i64,
     pub id: String,
+}
+
+impl HasId for Plan {
+    fn id(&self) -> String {
+        self.id.clone()
+    }
+    fn chat_id(&self) -> i64 {
+        self.chat_id
+    }
 }
 
 impl Plan {
@@ -47,15 +57,17 @@ impl Plan {
             .as_slice()
             .chunks(4)
             .map(|row| {
-                row.iter().map(|meal| {
-                    Button::new(
-                        meal.name.clone(),
-                        ButtonKind::DisplayPlanMeal {
-                            meal_id: meal.id.clone(),
-                            plan_id: self.id.clone(),
-                        },
-                    )
-                }).collect::<Vec<_>>()
+                row.iter()
+                    .map(|meal| {
+                        Button::new(
+                            meal.name.clone(),
+                            ButtonKind::DisplayPlanMeal {
+                                meal_id: meal.id.clone(),
+                                plan_id: self.id.clone(),
+                            },
+                        )
+                    })
+                    .collect::<Vec<_>>()
             })
             .collect()
     }
