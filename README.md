@@ -59,7 +59,12 @@ save, create, plan, and admire your meals with telegram.
 ##### bugs
 
 - [ ] Keyboards not getting removed consistently
-- [ ] Polls get removed to early
+- [ ] Polls get removed to early (fail to cancel)
+- [ ] Plan reroll bugs
+- [ ] Multiple plans per chat when using `/plan <days>`
+- [ ] Plans with wrong ids
+- [ ] Keyboard removed from poll/plan
+- [ ] Not finding plan when rerolling (unconfirmed)
 
 ### future releases
 
