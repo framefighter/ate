@@ -1,8 +1,7 @@
-use nanoid::nanoid;
+use chrono::offset::Local;
 use pickledb::{PickleDb, PickleDbDumpPolicy, SerializationMethod};
 use std::fmt;
-
-use crate::meal::Meal;
+use std::fs;
 
 #[derive(Debug)]
 pub enum DBKeys {
@@ -44,22 +43,15 @@ impl StoreHandler {
     }
 
     fn backup(&self, key: DBKeys) {
-        let mut db_backup =
-            Self::create_json(format!("database/{}_backup_{}.json", key, nanoid!()), false);
-        match db_backup.lcreate(&key.to_string()) {
-            Ok(_) => {
-                log::info!("Backing up {}!", key);
-                for item in self.db.liter(&key.to_string()) {
-                    match item.get_item::<Meal>() {
-                        Some(meal) => {
-                            log::info!("Backing up {}: {}", key, meal.name.clone());
-                            db_backup.ladd(&key.to_string(), &meal);
-                        }
-                        None => {}
-                    }
-                }
-            }
-            Err(err) => log::warn!("{}", err),
+        let source = format!("database/{}.json", key.to_string().to_lowercase());
+        let target = format!(
+            "database/{}_backup_{}.json",
+            key.to_string().to_lowercase(),
+            Local::now().format("%d-%m-%Y_%H-%M")
+        );
+        match fs::copy(source, target) {
+            Ok(_) => log::info!("Backed up database!"),
+            Err(err) => log::warn!("Error backing up database!: {}", err),
         }
     }
 
@@ -83,25 +75,6 @@ impl StoreHandler {
                     SerializationMethod::Json,
                 )
             }
-        }
-    }
-
-    fn create_json(path: String, load: bool) -> PickleDb {
-        let loaded_db = PickleDb::load(
-            path.clone(),
-            PickleDbDumpPolicy::AutoDump,
-            SerializationMethod::Json,
-        );
-        if loaded_db.is_ok() && load {
-            log::info!("Found existing {} database!", path.clone());
-            loaded_db.unwrap()
-        } else {
-            log::info!("Creating new {} database!", path.clone(),);
-            PickleDb::new(
-                path,
-                PickleDbDumpPolicy::AutoDump,
-                SerializationMethod::Json,
-            )
         }
     }
 }
