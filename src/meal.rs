@@ -28,6 +28,13 @@ impl HasId for Meal {
     fn chat_id(&self) -> i64 {
         self.chat_id
     }
+    fn save(&self, state: &StateLock) -> Self {
+        match state.write().add(self) {
+            Ok(_) => log::debug!("Saved meal"),
+            Err(_) => log::warn!("Error saving meal"),
+        }
+        self.clone()
+    }
 }
 
 impl Meal {
@@ -72,14 +79,6 @@ impl Meal {
 
     pub fn photo(&mut self, photo: PhotoSize) -> &mut Self {
         self.photos.push(photo);
-        self
-    }
-
-    pub fn save(&self, state: &StateLock) -> &Self {
-        match state.write().add(self) {
-            Ok(_) => log::debug!("Saved meal"),
-            Err(_) => log::warn!("Error saving meal"),
-        }
         self
     }
 

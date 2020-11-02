@@ -3,6 +3,7 @@ use teloxide::types::*;
 
 use crate::poll::{Poll, PollBuildStepOne};
 use crate::StateLock;
+use crate::state::HasId;
 
 #[derive(Clone, Debug)]
 pub enum RequestKind {

@@ -14,6 +14,7 @@ use crate::plan::Plan;
 use crate::poll::{Poll, PollKind};
 use crate::request::{RequestKind, RequestResult};
 use crate::{ContextMessage, StateLock, VERSION};
+use crate::state::HasId;
 
 fn create_command(
     input: String,
@@ -320,10 +321,7 @@ impl Command {
                                     .find(cx.chat_id(), |plan: &Plan| plan.chat_id == cx.chat_id())
                                     .unwrap_or(Plan::new(cx.chat_id(), vec![]))
                             };
-                            match state.write().add(&meal_plan) {
-                                Ok(_) => log::info!("Saving plan: {:?}", meal_plan),
-                                Err(_) => log::warn!("Error saving plan: {:?}", meal_plan),
-                            }
+                            meal_plan.save(state);
                             if meal_plan.days < 2 {
                                 request.message(cx.bot.send_message(
                                     cx.chat_id(),
@@ -400,7 +398,7 @@ impl Command {
                                 match state.write().modify(&meal.id, |mut meal: Meal| {
                                     meal.rename(new_name.clone()).clone()
                                 }) {
-                                    Ok(_) => log::debug!("Modified meal: {}", meal),
+                                    Ok(_) => log::debug!("Modified meal"),
                                     Err(_) => log::debug!("Error Modifiing meal: {}", meal),
                                 }
                                 request.add(meal.request(
@@ -423,7 +421,7 @@ impl Command {
                                 match state.write().modify(&meal.id, |mut meal: Meal| {
                                     meal.rate(Some(*new_rating)).clone()
                                 }) {
-                                    Ok(_) => log::debug!("Modified meal: {}", meal),
+                                    Ok(_) => log::debug!("Modified meal"),
                                     Err(_) => log::debug!("Error Modifiing meal: {}", meal),
                                 }
                                 request.add(meal.request(
@@ -453,7 +451,7 @@ impl Command {
                                 match state.write().modify(&meal.id, |mut meal: Meal| {
                                     meal.tag(new_tags.clone()).clone()
                                 }) {
-                                    Ok(_) => log::debug!("Modified meal: {}", meal),
+                                    Ok(_) => log::debug!("Modified meal"),
                                     Err(_) => log::debug!("Error Modifiing meal: {}", meal),
                                 }
                                 request.add(meal.request(
@@ -483,7 +481,7 @@ impl Command {
                                 match state.write().modify(&meal.id, |mut meal: Meal| {
                                     meal.set_tags(new_tags.clone()).clone()
                                 }) {
-                                    Ok(_) => log::debug!("Modified meal: {}", meal),
+                                    Ok(_) => log::debug!("Modified meal"),
                                     Err(_) => log::debug!("Error Modifiing meal: {}", meal),
                                 }
                                 request.add(meal.request(
@@ -509,7 +507,7 @@ impl Command {
                                 match state.write().modify(&meal.id, |mut meal: Meal| {
                                     meal.url(Some(new_reference.clone())).clone()
                                 }) {
-                                    Ok(_) => log::debug!("Modified meal: {}", meal),
+                                    Ok(_) => log::debug!("Modified meal"),
                                     Err(_) => log::debug!("Error Modifiing meal: {}", meal),
                                 }
 
@@ -687,7 +685,7 @@ impl PhotoCommand {
                                                 .modify(&meal.id, |mut meal: Meal| {
                                                     meal.photo(photo.clone()).clone()
                                                 }) {
-                                                Ok(_) => log::debug!("Modified meal: {}", meal),
+                                                Ok(_) => log::debug!("Modified meal"),
                                                 Err(_) => {
                                                     log::debug!("Error Modifiing meal: {}", meal)
                                                 }

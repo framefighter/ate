@@ -64,6 +64,13 @@ impl HasId for Poll {
     fn chat_id(&self) -> i64 {
         self.chat_id
     }
+    fn save(&self, state: &StateLock) -> Self {
+        match state.write().add(self) {
+            Ok(_) => log::debug!("Saved poll"),
+            Err(_) => log::warn!("Error saving poll"),
+        }
+        self.clone()
+    }
 }
 
 impl Poll {
@@ -93,14 +100,6 @@ impl Poll {
             keyboard_id,
             is_canceled: false,
         }
-    }
-
-    pub fn save(&self, state: &StateLock) -> &Self {
-        match state.write().add(self) {
-            Ok(_) => log::debug!("Saved poll"),
-            Err(_) => log::warn!("Error saving poll"),
-        }
-        self
     }
 
     pub fn cancel(&mut self) -> &mut Self {
@@ -215,10 +214,7 @@ impl Poll {
                                     self.poll_kind.clone(),
                                     keyboard.id.clone(),
                                 );
-                                match state.write().add(&new_poll) {
-                                    Ok(_) => log::debug!("Saved poll"),
-                                    Err(_) => log::warn!("Error saving poll"),
-                                }
+                                new_poll.save(state);
                                 // show save button
                                 RequestResult::default()
                                     .add(RequestKind::EditReplyMarkup(
@@ -246,10 +242,7 @@ impl Poll {
                                     self.poll_kind.clone(),
                                     keyboard.id.clone(),
                                 );
-                                match state.write().add(&new_poll) {
-                                    Ok(_) => log::debug!("Saved poll"),
-                                    Err(_) => log::warn!("Error saving poll"),
-                                }
+                                new_poll.save(state);
                                 // hide show button
                                 RequestResult::default()
                                     .add(RequestKind::EditReplyMarkup(

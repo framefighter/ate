@@ -2,11 +2,12 @@ use pickledb::error::Error;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::db::{DBKeys, StoreHandler};
-use crate::Config;
+use crate::{Config, StateLock};
 
 pub trait HasId {
     fn id(&self) -> String;
     fn chat_id(&self) -> i64;
+    fn save(&self, state: &StateLock) -> Self;
 }
 
 pub struct State {
@@ -78,7 +79,7 @@ impl State {
         &mut self,
         id: &String,
         modifier: F,
-    ) -> Result<T, ()>
+    ) -> Result<T, String>
     where
         F: Fn(T) -> T,
     {
@@ -87,10 +88,10 @@ impl State {
                 let modified = modifier(entry);
                 match self.store_handler.db.set::<T>(id, &modified) {
                     Ok(_) => Ok(modified),
-                    Err(_) => Err(()),
+                    Err(_) => Err(format!("Failed to store modified entry!")),
                 }
             }
-            None => Err(()),
+            None => Err(format!("No entry to modify found!")),
         }
     }
 

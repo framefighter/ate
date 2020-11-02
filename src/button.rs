@@ -13,6 +13,7 @@ use crate::plan::Plan;
 use crate::poll::{Poll, PollKind};
 use crate::request::{RequestKind, RequestResult};
 use crate::{ContextCallback, StateLock};
+use crate::state::HasId;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Button {
@@ -116,6 +117,7 @@ impl ButtonKind {
             Some(msg) => msg.chat_id(),
             None => 0,
         };
+        log::debug!("Button Pressed: {:?}", button);
         match button {
             ButtonKind::SaveMeal { meal_id } => {
                 let meal_opt: Option<Meal> = state.read().get(meal_id);
@@ -250,8 +252,12 @@ impl ButtonKind {
                             .write()
                             .modify(&plan.id, move |_: Plan| meal_plan.clone())
                         {
-                            Ok(plan) => log::debug!("Modified Plan: {:?}", plan),
-                            Err(_) => log::warn!("Error Modifing Plan: {:?}", plan),
+                            Ok(_) => log::debug!("Modified Plan"),
+                            Err(err) => log::warn!("Error Modifing Plan: {}\n {:?}", err, plan),
+                        }
+                        match state.write().remove(&plan.id) {
+                            Ok(plan) => log::debug!("Removed Plan: {:?}", plan),
+                            Err(err) => log::warn!("Error Removing Plan: {}\n {:?}", err, plan),
                         }
                         let poll_opt: Option<Poll> =
                             state

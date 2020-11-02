@@ -20,6 +20,15 @@ impl HasId for Keyboard {
     fn chat_id(&self) -> i64 {
         self.chat_id
     }
+    fn save(&self, state: &StateLock) -> Self {
+        if self.buttons.iter().flatten().count() > 0 {
+            match state.write().add(self) {
+                Ok(_) => log::debug!("Saved keyboard"),
+                Err(_) => log::warn!("Error saving keyboard"),
+            }
+        }
+        self.clone()
+    }
 }
 
 impl Keyboard {
@@ -63,13 +72,5 @@ impl Keyboard {
         InlineKeyboardMarkup::new(keyboard)
     }
 
-    pub fn save(self, state: &StateLock) -> Self {
-        if self.buttons.iter().flatten().count() > 0 {
-            match state.write().add(&self) {
-                Ok(_) => log::debug!("Saved keyboard"),
-                Err(_) => log::warn!("Error saving keyboard"),
-            }
-        }
-        self
-    }
+    
 }

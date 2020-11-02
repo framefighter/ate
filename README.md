@@ -59,6 +59,7 @@ save, create, plan, and admire your meals with telegram.
 ##### bugs
 
 - [ ] Keyboards not getting removed consistently
+- [ ] Polls get removed to early
 
 ### future releases
 

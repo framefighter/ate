@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::button::{Button, ButtonKind};
 use crate::meal::Meal;
 use crate::state::HasId;
+use crate::StateLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Plan {
@@ -20,6 +21,13 @@ impl HasId for Plan {
     }
     fn chat_id(&self) -> i64 {
         self.chat_id
+    }
+    fn save(&self, state: &StateLock) -> Self {
+        match state.write().add(self) {
+            Ok(_) => log::debug!("Saved plan"),
+            Err(_) => log::warn!("Error saving plan"),
+        }
+        self.clone()
     }
 }
 
@@ -84,4 +92,5 @@ impl Plan {
             })
             .collect()
     }
+
 }
