@@ -2,8 +2,8 @@ use teloxide::requests::*;
 use teloxide::types::*;
 
 use crate::poll::{Poll, PollBuildStepOne};
-use crate::StateLock;
 use crate::state::HasId;
+use crate::StateLock;
 
 #[derive(Clone, Debug)]
 pub enum RequestKind {

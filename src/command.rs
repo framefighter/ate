@@ -13,8 +13,8 @@ use crate::meal::Meal;
 use crate::plan::Plan;
 use crate::poll::{Poll, PollKind};
 use crate::request::{RequestKind, RequestResult};
-use crate::{ContextMessage, StateLock, VERSION};
 use crate::state::HasId;
+use crate::{ContextMessage, StateLock, VERSION};
 
 fn create_command(
     input: String,
@@ -312,7 +312,7 @@ impl Command {
                         }
                         Command::Plan(days_opt) => {
                             let meals: Vec<Meal> = state.read().all_chat(cx.chat_id());
-                            let meal_count = meals.len();
+                            let plans: Vec<Plan> = state.read().all_chat(cx.chat_id());
                             let meal_plan = if let Some(days) = days_opt {
                                 Plan::gen(cx.chat_id(), meals, *days)
                             } else {
@@ -320,8 +320,8 @@ impl Command {
                                     .read()
                                     .find(cx.chat_id(), |plan: &Plan| plan.chat_id == cx.chat_id())
                                     .unwrap_or(Plan::new(cx.chat_id(), vec![]))
-                            };
-                            meal_plan.save(state);
+                            }
+                            .save(state);
                             if meal_plan.days < 2 {
                                 request.message(cx.bot.send_message(
                                     cx.chat_id(),
@@ -332,14 +332,20 @@ impl Command {
                                     cx.chat_id(),
                                     format!("Can only plan for a maximum of 10 days!"),
                                 ));
-                            } else if meal_plan.days > 1 {
+                            } else {
+                                for plan in plans {
+                                    match state.write().remove(&plan.id) {
+                                        Ok(_) => log::debug!("Removed old plan"),
+                                        Err(_) => log::warn!("Error removing old plan"),
+                                    }
+                                }
                                 let mut keyboard = Keyboard::new(cx.chat_id());
                                 let keyboard_id = keyboard.id.clone();
                                 let poll_kind = PollKind::Plan {
-                                    plan: meal_plan.clone(),
+                                    plan_id: meal_plan.id.clone(),
                                 };
                                 let poll_builder =
-                                    Poll::build(cx.chat_id(), poll_kind.clone(), keyboard_id);
+                                    Poll::build(cx.chat_id(), poll_kind, keyboard_id);
                                 keyboard =
                                     keyboard.buttons(poll_plan_buttons(&meal_plan)).save(&state);
                                 request.add(RequestKind::Poll(
@@ -354,18 +360,6 @@ impl Command {
                                         )),
                                         poll_builder,
                                     ));
-                            } else {
-                                if meal_count < days_opt.unwrap_or(0) {
-                                    request.message(cx.bot.send_message(
-                                        cx.chat_id(),
-                                        format!("Not enough Meals to generate plan!"),
-                                    ));
-                                } else {
-                                    request.message(cx.bot.send_message(
-                                        cx.chat_id(),
-                                        format!("No Plan found, add with /plan <days>!"),
-                                    ));
-                                }
                             }
                         }
 

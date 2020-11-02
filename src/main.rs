@@ -17,8 +17,8 @@ use teloxide::{
 };
 
 mod button;
-mod db;
 mod meal;
+mod store_handler;
 use meal::Meal;
 mod command;
 use command::{Command, PhotoCommand};

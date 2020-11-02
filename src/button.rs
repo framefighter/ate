@@ -12,8 +12,8 @@ use crate::meal::Meal;
 use crate::plan::Plan;
 use crate::poll::{Poll, PollKind};
 use crate::request::{RequestKind, RequestResult};
-use crate::{ContextCallback, StateLock};
 use crate::state::HasId;
+use crate::{ContextCallback, StateLock};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Button {
@@ -246,27 +246,22 @@ impl ButtonKind {
                     let plan_v: Vec<Plan> = state.read().all_chat(chat_id);
                     if let Some(plan) = plan_v.first() {
                         let meals: Vec<Meal> = state.read().all_chat(chat_id);
-                        let meal_plan = Plan::gen(chat_id, meals, plan.days);
-                        let answers = meal_plan.answers();
-                        match state
-                            .write()
-                            .modify(&plan.id, move |_: Plan| meal_plan.clone())
-                        {
-                            Ok(_) => log::debug!("Modified Plan"),
-                            Err(err) => log::warn!("Error Modifing Plan: {}\n {:?}", err, plan),
-                        }
+                        let new_plan = Plan::gen(chat_id, meals, plan.days);
+                        let answers = new_plan.answers();
                         match state.write().remove(&plan.id) {
-                            Ok(plan) => log::debug!("Removed Plan: {:?}", plan),
+                            Ok(rem) => log::debug!("Removed Plan: {:?}", rem),
                             Err(err) => log::warn!("Error Removing Plan: {}\n {:?}", err, plan),
                         }
+                        match state.write().add(&new_plan) {
+                            Ok(_) => log::debug!("Added new Plan"),
+                            Err(err) => log::warn!("Error adding new Plan: {}\n {:?}", err, plan),
+                        }
+
                         let poll_opt: Option<Poll> =
                             state
                                 .read()
                                 .find(chat_id, |poll: &Poll| match &poll.poll_kind {
-                                    PollKind::Plan {
-                                        plan: Plan { id, .. },
-                                        ..
-                                    } => id == &plan.id,
+                                    PollKind::Plan { plan_id, .. } => plan_id == &plan.id,
                                     _ => false,
                                 });
                         if let Some(poll) = poll_opt {
@@ -278,9 +273,11 @@ impl ButtonKind {
 
                         let mut keyboard = Keyboard::new(chat_id);
                         let keyboard_id = keyboard.id.clone();
-                        let poll_kind = PollKind::Plan { plan: plan.clone() };
+                        let poll_kind = PollKind::Plan {
+                            plan_id: new_plan.id.clone(),
+                        };
                         let poll_builder = Poll::build(chat_id, poll_kind.clone(), keyboard_id);
-                        keyboard = keyboard.buttons(poll_plan_buttons(&plan)).save(&state);
+                        keyboard = keyboard.buttons(poll_plan_buttons(&new_plan)).save(&state);
                         request
                             .add(RequestKind::DeleteMessage(
                                 cx.bot.delete_message(message.chat_id(), message.id),
@@ -312,10 +309,7 @@ impl ButtonKind {
                             state
                                 .read()
                                 .find(chat_id, |poll: &Poll| match &poll.poll_kind {
-                                    PollKind::Plan {
-                                        plan: Plan { id, .. },
-                                        ..
-                                    } => id == &plan.id,
+                                    PollKind::Plan { plan_id, .. } => plan_id == &plan.id,
                                     _ => false,
                                 });
                         if let Some(poll) = poll_opt {
@@ -326,7 +320,9 @@ impl ButtonKind {
                         }
                         let mut keyboard = Keyboard::new(chat_id);
                         let keyboard_id = keyboard.id.clone();
-                        let poll_kind = PollKind::Plan { plan: plan.clone() };
+                        let poll_kind = PollKind::Plan {
+                            plan_id: plan.id.clone(),
+                        };
                         let poll_builder = Poll::build(chat_id, poll_kind.clone(), keyboard_id);
                         keyboard = keyboard.buttons(poll_plan_buttons(&plan)).save(&state);
                         request
@@ -357,9 +353,8 @@ impl ButtonKind {
                     .poll_kind
                 {
                     PollKind::Plan {
-                        plan: Plan { id, .. },
-                        ..
-                    } => id == plan_id,
+                        plan_id: _plan_id, ..
+                    } => _plan_id == plan_id,
                     _ => false,
                 });
                 if let Some(poll) = poll_opt {

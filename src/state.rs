@@ -1,7 +1,7 @@
 use pickledb::error::Error;
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::db::{DBKeys, StoreHandler};
+use crate::store_handler::{DBKeys, StoreHandler};
 use crate::{Config, StateLock};
 
 pub trait HasId {
@@ -86,6 +86,13 @@ impl State {
         match self.store_handler.db.get::<T>(id) {
             Some(entry) => {
                 let modified = modifier(entry);
+                match self.store_handler.db.rem(id) {
+                    Ok(_) => log::debug!("Removed entry"),
+                    Err(_) => {
+                        log::warn!("Error removing entry");
+                        return Err(format!("Failed to remove entry!"));
+                    }
+                }
                 match self.store_handler.db.set::<T>(id, &modified) {
                     Ok(_) => Ok(modified),
                     Err(_) => Err(format!("Failed to store modified entry!")),

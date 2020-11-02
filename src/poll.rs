@@ -19,7 +19,7 @@ pub enum PollKind {
         reply_message_id: i32,
     },
     Plan {
-        plan: Plan,
+        plan_id: String,
     },
 }
 

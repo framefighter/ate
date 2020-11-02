@@ -71,6 +71,4 @@ impl Keyboard {
             .collect();
         InlineKeyboardMarkup::new(keyboard)
     }
-
-    
 }
