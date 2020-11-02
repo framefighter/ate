@@ -182,7 +182,7 @@ async fn handle_polls(state: StateLock, rx: DispatcherHandlerRx<TelePoll>) {
         .for_each_concurrent(None, |(cx, state)| async move {
             let poll_opt: Option<Poll> = state
                 .read()
-                .find_all(|poll: &Poll| poll.poll_id == cx.update.id);
+                .all_find(|poll: &Poll| poll.poll_id == cx.update.id);
             match poll_opt {
                 Some(poll) => {
                     poll.handle_votes(&state, &cx).send(&state).await;
@@ -206,6 +206,7 @@ pub struct Config {
     token: String,
     name: String,
     backup: bool,
+    default_admins: Vec<String>,
 }
 
 async fn run() {

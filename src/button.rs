@@ -267,7 +267,7 @@ impl ButtonKind {
                         if let Some(poll) = poll_opt {
                             request.add(RequestKind::StopPoll(
                                 cx.bot.stop_poll(poll.chat_id.clone(), poll.message_id),
-                                Some(poll),
+                                Some(poll.id),
                             ));
                         }
 
@@ -315,7 +315,7 @@ impl ButtonKind {
                         if let Some(poll) = poll_opt {
                             request.add(RequestKind::StopPoll(
                                 cx.bot.stop_poll(poll.chat_id.clone(), poll.message_id),
-                                Some(poll),
+                                Some(poll.id),
                             ));
                         }
                         let mut keyboard = Keyboard::new(chat_id);
@@ -361,7 +361,7 @@ impl ButtonKind {
                     request
                         .add(RequestKind::StopPoll(
                             cx.bot.stop_poll(poll.chat_id.clone(), poll.message_id),
-                            Some(poll.clone()),
+                            Some(poll.id),
                         ))
                         .add(RequestKind::DeleteMessage(
                             cx.bot.delete_message(poll.chat_id.clone(), poll.message_id),
@@ -487,7 +487,7 @@ impl ButtonKind {
                     Ok(poll) => {
                         result.add(RequestKind::StopPoll(
                             cx.bot.stop_poll(poll.chat_id.clone(), poll.message_id),
-                            Some(poll.clone()),
+                            Some(poll.id),
                         ));
                     }
                     _ => {}

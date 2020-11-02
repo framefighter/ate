@@ -381,140 +381,70 @@ impl Command {
                             }
                         }
                         Command::Rename(meal_name, new_name) => {
-                            let meals = state.read().filter(cx.chat_id(), |meal: &Meal| {
-                                meal.name.to_uppercase() == meal_name.to_uppercase()
-                            });
-                            if meals.len() == 0 {
-                                request
-                                    .message(cx.answer(format!("No meal with name {}", meal_name)));
-                            }
-                            for meal in meals {
-                                match state.write().modify(&meal.id, |mut meal: Meal| {
-                                    meal.rename(new_name.clone()).clone()
-                                }) {
-                                    Ok(_) => log::debug!("Modified meal"),
-                                    Err(_) => log::debug!("Error Modifiing meal: {}", meal),
-                                }
-                                request.add(meal.request(
-                                    &cx,
-                                    Some(format!("Renamed meal {} to {}", meal, new_name)),
-                                    None,
-                                ));
-                                log::info!("Renamed meal {} to {}", meal_name, new_name)
-                            }
+                            modify_meal_helper(
+                                state,
+                                &cx,
+                                &mut request,
+                                meal_name,
+                                &|mut meal: Meal| meal.rename(new_name.clone()).clone(),
+                                format!("Renamed meal {} to {}", meal_name, new_name),
+                            );
                         }
                         Command::Rate(meal_name, new_rating) => {
-                            let meals = state.read().filter(cx.chat_id(), |meal: &Meal| {
-                                meal.name.to_uppercase() == meal_name.to_uppercase()
-                            });
-                            if meals.len() == 0 {
-                                request
-                                    .message(cx.answer(format!("No meal with name {}", meal_name)));
-                            }
-                            for meal in meals {
-                                match state.write().modify(&meal.id, |mut meal: Meal| {
-                                    meal.rate(Some(*new_rating)).clone()
-                                }) {
-                                    Ok(_) => log::debug!("Modified meal"),
-                                    Err(_) => log::debug!("Error Modifiing meal: {}", meal),
-                                }
-                                request.add(meal.request(
-                                    &cx,
-                                    Some(format!(
-                                        "Changed rating of meal {} to {}",
-                                        meal, new_rating
-                                    )),
-                                    None,
-                                ));
-                                log::info!(
-                                    " Changed rating of meal {} to {}",
-                                    meal_name,
-                                    new_rating
-                                )
-                            }
+                            modify_meal_helper(
+                                state,
+                                &cx,
+                                &mut request,
+                                meal_name,
+                                &|mut meal: Meal| meal.rate(Some(*new_rating)).clone(),
+                                format!("Changed rating of meal {} to {}", meal_name, new_rating),
+                            );
                         }
                         Command::Tag(meal_name, new_tags) => {
-                            let meals = state.read().filter(cx.chat_id(), |meal: &Meal| {
-                                meal.name.to_uppercase() == meal_name.to_uppercase()
-                            });
-                            if meals.len() == 0 {
-                                request
-                                    .message(cx.answer(format!("No meal with name {}", meal_name)));
-                            }
-                            for meal in meals {
-                                match state.write().modify(&meal.id, |mut meal: Meal| {
-                                    meal.tag(new_tags.clone()).clone()
-                                }) {
-                                    Ok(_) => log::debug!("Modified meal"),
-                                    Err(_) => log::debug!("Error Modifiing meal: {}", meal),
-                                }
-                                request.add(meal.request(
-                                    &cx,
-                                    Some(format!("Added tags to meal {}: {:?}", meal, new_tags)),
-                                    None,
-                                ));
-                                log::info!("Added tags to meal {}: {:?}", meal_name, new_tags)
-                            }
+                            modify_meal_helper(
+                                state,
+                                &cx,
+                                &mut request,
+                                meal_name,
+                                &|mut meal: Meal| meal.tag(new_tags.clone()).clone(),
+                                format!("Added tags {} to meal {}", new_tags.join(", "), meal_name),
+                            );
                         }
                         Command::TagRemove(meal_name, rem_tags) => {
-                            let meals = state.read().filter(cx.chat_id(), |meal: &Meal| {
-                                meal.name.to_uppercase() == meal_name.to_uppercase()
-                            });
-                            if meals.len() == 0 {
-                                request
-                                    .message(cx.answer(format!("No meal with name {}", meal_name)));
-                            }
-                            for meal in meals {
-                                let meal_tags = meal.tags.clone();
-                                let mut new_tags = vec![];
-                                for tag in meal_tags {
-                                    if !rem_tags.contains(&tag) {
-                                        new_tags.push(tag);
+                            modify_meal_helper(
+                                state,
+                                &cx,
+                                &mut request,
+                                meal_name,
+                                &|mut meal: Meal| {
+                                    let meal_tags = meal.tags.clone();
+                                    let mut new_tags = vec![];
+                                    for tag in meal_tags {
+                                        if !rem_tags.contains(&tag) {
+                                            new_tags.push(tag);
+                                        }
                                     }
-                                }
-                                match state.write().modify(&meal.id, |mut meal: Meal| {
                                     meal.set_tags(new_tags.clone()).clone()
-                                }) {
-                                    Ok(_) => log::debug!("Modified meal"),
-                                    Err(_) => log::debug!("Error Modifiing meal: {}", meal),
-                                }
-                                request.add(meal.request(
-                                    &cx,
-                                    Some(format!(
-                                        "Removed tags from meal {}: {:?}",
-                                        meal, rem_tags
-                                    )),
-                                    None,
-                                ));
-                                log::info!("Removed tags from meal {}: {:?}", meal_name, rem_tags)
-                            }
+                                },
+                                format!(
+                                    "Removed tags {} from meal {}",
+                                    rem_tags.join(", "),
+                                    meal_name
+                                ),
+                            );
                         }
                         Command::Ref(meal_name, new_reference) => {
-                            let meals = state.read().filter(cx.chat_id(), |meal: &Meal| {
-                                meal.name.to_uppercase() == meal_name.to_uppercase()
-                            });
-                            if meals.len() == 0 {
-                                request
-                                    .message(cx.answer(format!("No meal with name {}", meal_name)));
-                            }
-                            for meal in meals {
-                                match state.write().modify(&meal.id, |mut meal: Meal| {
-                                    meal.url(Some(new_reference.clone())).clone()
-                                }) {
-                                    Ok(_) => log::debug!("Modified meal"),
-                                    Err(_) => log::debug!("Error Modifiing meal: {}", meal),
-                                }
-
-                                request.add(meal.request(
-                                    &cx,
-                                    Some(format!(
-                                        "Changed url of meal {} to {}",
-                                        meal, new_reference
-                                    )),
-                                    None,
-                                ));
-                                log::info!("Changed url of meal {} to {}", meal_name, new_reference)
-                            }
+                            modify_meal_helper(
+                                state,
+                                &cx,
+                                &mut request,
+                                meal_name,
+                                &|mut meal: Meal| meal.url(Some(new_reference.clone())).clone(),
+                                format!(
+                                    "Changed reference of meal {} to {}",
+                                    meal_name, new_reference
+                                ),
+                            );
                         }
                         Command::Version => {
                             request.message(
@@ -711,5 +641,33 @@ impl PhotoCommand {
 
     pub async fn execute(&self, photos: &[PhotoSize], state: &StateLock, cx: &ContextMessage) {
         Self::run(self, photos, state, cx).await;
+    }
+}
+
+fn modify_meal_helper<M>(
+    state: &StateLock,
+    cx: &ContextMessage,
+    request: &mut RequestResult,
+    meal_name: &String,
+    modifier: &M,
+    text: String,
+) where
+    M: Fn(Meal) -> Meal,
+{
+    let meals = state.read().filter(cx.chat_id(), |meal: &Meal| {
+        meal.name.to_uppercase() == meal_name.to_uppercase()
+    });
+    if meals.len() == 0 {
+        request.message(cx.answer(format!("No meal with name {}", meal_name)));
+    }
+    for meal in meals {
+        match state.write().modify(&meal.id, modifier) {
+            Ok(new_meal) => {
+                log::debug!("Modified meal");
+                request.add(new_meal.request(&cx, Some(text.clone()), None));
+            }
+            Err(_) => log::warn!("Error Modifying meal: {}", meal),
+        }
+        log::info!("{}", text)
     }
 }

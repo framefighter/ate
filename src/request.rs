@@ -1,7 +1,7 @@
 use teloxide::requests::*;
 use teloxide::types::*;
 
-use crate::poll::{Poll, PollBuildStepOne};
+use crate::poll::PollBuildStepOne;
 use crate::state::HasId;
 use crate::StateLock;
 
@@ -14,7 +14,7 @@ pub enum RequestKind {
     // EditMedia(EditMessageMedia),
     // EditInlineMedia(EditInlineMessageMedia),
     Poll(SendPoll, PollBuildStepOne),
-    StopPoll(StopPoll, Option<Poll>),
+    StopPoll(StopPoll, Option<String>),
     DeleteMessage(DeleteMessage),
     EditReplyMarkup(EditMessageReplyMarkup),
     CallbackAnswer(AnswerCallbackQuery),
@@ -117,13 +117,14 @@ impl RequestResult {
                     },
                     Err(err) => log::warn!("Send Poll: {}", err),
                 },
-                RequestKind::StopPoll(send_request, poll) => match send_request.send().await {
+                RequestKind::StopPoll(send_request, poll_id_opt) => match send_request.send().await
+                {
                     Ok(_) => {
-                        if let Some(poll) = poll {
-                            match state.write().remove(&poll.id) {
-                                Ok(_) => log::debug!("Remove poll"),
-                                Err(_) => log::warn!("Error removing poll"),
-                            }
+                        if let Some(poll_id) = poll_id_opt {
+                            // match state.write().remove(&poll_id) {
+                            //     Ok(_) => log::debug!("Remove stopped poll"),
+                            //     Err(_) => log::warn!("Error removing stopped poll"),
+                            // }
                         }
                         log::info!("Stopping Poll")
                     }

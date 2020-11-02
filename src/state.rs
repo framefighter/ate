@@ -17,7 +17,11 @@ pub struct State {
 
 impl State {
     pub fn new(config: Config) -> Self {
-        let store_handler = StoreHandler::new(config.backup);
+        let mut store_handler = StoreHandler::new(config.backup);
+        for admin in config.default_admins.clone() {
+            let _ = store_handler.db.lrem_value(&DBKeys::Whitelist.to_string(), &admin);
+            store_handler.db.ladd(&DBKeys::Whitelist.to_string(), &admin);
+        }
         Self {
             store_handler,
             config,
@@ -61,7 +65,7 @@ impl State {
         self.all_chat(chat_id).into_iter().find(finder)
     }
 
-    pub fn find_all<F, T: DeserializeOwned + HasId>(&self, finder: F) -> Option<T>
+    pub fn all_find<F, T: DeserializeOwned + HasId>(&self, finder: F) -> Option<T>
     where
         F: Fn(&T) -> bool,
     {
@@ -75,7 +79,7 @@ impl State {
         self.all_chat(chat_id).into_iter().filter(finder).collect()
     }
 
-    pub fn modify<F, T: DeserializeOwned + Serialize + Clone>(
+    pub fn modify<F, T: DeserializeOwned + Serialize + Clone + HasId + std::fmt::Debug>(
         &mut self,
         id: &String,
         modifier: F,
@@ -83,19 +87,22 @@ impl State {
     where
         F: Fn(T) -> T,
     {
-        match self.store_handler.db.get::<T>(id) {
+        match self.get::<T>(id) {
             Some(entry) => {
                 let modified = modifier(entry);
-                match self.store_handler.db.rem(id) {
-                    Ok(_) => log::debug!("Removed entry"),
+                match self.remove(id) {
+                    Ok(_) => log::debug!("Removed original entry"),
                     Err(_) => {
-                        log::warn!("Error removing entry");
-                        return Err(format!("Failed to remove entry!"));
+                        log::warn!("Error removing original entry");
+                        return Err(format!("Failed to remove original entry!"));
                     }
                 }
-                match self.store_handler.db.set::<T>(id, &modified) {
-                    Ok(_) => Ok(modified),
-                    Err(_) => Err(format!("Failed to store modified entry!")),
+                match self.add(&modified) {
+                    Ok(added) => {
+                        log::debug!("Added modified entry");
+                        Ok(added)
+                    }
+                    Err(_) => Err(format!("Failed to add modified entry!")),
                 }
             }
             None => Err(format!("No entry to modify found!")),

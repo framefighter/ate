@@ -107,6 +107,11 @@ impl Poll {
         self
     }
 
+    pub fn set_keyboard(&mut self, keyboard_id: &String) -> Self {
+        self.keyboard_id = keyboard_id.clone();
+        self.clone()
+    }
+
     pub fn handle_votes(&self, state: &StateLock, cx: &UpdateWithCx<TgPoll>) -> RequestResult {
         match &self.poll_kind {
             PollKind::Meal {
@@ -120,7 +125,7 @@ impl Poll {
                         RequestResult::default()
                             .add(RequestKind::StopPoll(
                                 cx.bot.stop_poll(self.chat_id.clone(), self.message_id),
-                                Some(self.clone()),
+                                Some(self.id.clone()),
                             ))
                             .clone()
                     }
@@ -128,8 +133,10 @@ impl Poll {
                         let total_votes = cx.update.total_voter_count;
                         if cx.update.is_closed {
                             match state.write().remove(&self.id) {
-                                Ok(_) => log::debug!("Removed poll"),
-                                Err(_) => log::warn!("Error removing poll"),
+                                Ok(rem) => {
+                                    log::debug!("Removed closed poll: {}", rem)
+                                }
+                                Err(_) => log::warn!("Error removing closed poll"),
                             }
                             if total_votes > 0 && !self.is_canceled {
                                 // someone voted and poll closed successfully ->
@@ -149,8 +156,8 @@ impl Poll {
                                     ))
                                     .clone()
                                 }) {
-                                    Ok(_) => log::debug!("Modified meal"),
-                                    Err(_) => log::warn!("Error modifying meal"),
+                                    Ok(_) => log::debug!("Modified meal rating with poll"),
+                                    Err(_) => log::warn!("Error modifying rating meal with poll"),
                                 }
                                 log::info!("Poll closed: {}", meal.name);
                                 // tell user that meal has been saved with new rating
@@ -199,62 +206,42 @@ impl Poll {
                             // poll still in progress
                             // remove poll keyboard
                             match state.write().remove(&self.keyboard_id) {
-                                Ok(_) => log::debug!("Removed keyboard"),
-                                Err(_) => log::warn!("Error removing keyboard"),
+                                Ok(_) => log::debug!("Removed poll keyboard"),
+                                Err(_) => log::warn!("Error removing poll keyboard"),
                             }
-                            log::info!("Poll Vote...",);
-                            if total_votes > 0 {
-                                let keyboard = Keyboard::new(self.chat_id)
+                            log::info!("Poll Update...");
+                            let keyboard = if total_votes > 0 {
+                                Keyboard::new(self.chat_id)
                                     .buttons(vec![button::save_poll_button_row(&meal.id, &self.id)])
-                                    .save(&state);
-                                let new_poll = Poll::new(
-                                    self.poll_id.clone(),
-                                    self.chat_id,
-                                    self.message_id,
-                                    self.poll_kind.clone(),
-                                    keyboard.id.clone(),
-                                );
-                                new_poll.save(state);
-                                // show save button
-                                RequestResult::default()
-                                    .add(RequestKind::EditReplyMarkup(
-                                        cx.bot
-                                            .edit_message_reply_markup(
-                                                self.chat_id.clone(),
-                                                self.message_id,
-                                            )
-                                            .reply_markup(keyboard.inline_keyboard()),
-                                    ))
-                                    .clone()
+                                    .save(&state)
                             } else {
-                                let keyboard = Keyboard::new(self.chat_id)
+                                Keyboard::new(self.chat_id)
                                     .buttons(vec![vec![Button::new(
                                         "Cancel Vote".to_uppercase(),
                                         ButtonKind::CancelPollRating {
                                             poll_id: self.id.clone(),
                                         },
                                     )]])
-                                    .save(&state);
-                                let new_poll = Poll::new(
-                                    self.poll_id.clone(),
-                                    self.chat_id,
-                                    self.message_id,
-                                    self.poll_kind.clone(),
-                                    keyboard.id.clone(),
-                                );
-                                new_poll.save(state);
-                                // hide show button
-                                RequestResult::default()
-                                    .add(RequestKind::EditReplyMarkup(
-                                        cx.bot
-                                            .edit_message_reply_markup(
-                                                self.chat_id.clone(),
-                                                self.message_id,
-                                            )
-                                            .reply_markup(keyboard.inline_keyboard()),
-                                    ))
-                                    .clone()
+                                    .save(&state)
+                            };
+                            let inline_keyboard = keyboard.inline_keyboard();
+                            match state.write().modify(&self.id, move |mut poll: Poll| {
+                                poll.set_keyboard(&keyboard.id)
+                            }) {
+                                Ok(_) => log::debug!("Modified polls keyboard_id"),
+                                Err(_) => log::warn!("Error modifying polls keyboard_id"),
                             }
+                            // show save button
+                            RequestResult::default()
+                                .add(RequestKind::EditReplyMarkup(
+                                    cx.bot
+                                        .edit_message_reply_markup(
+                                            self.chat_id.clone(),
+                                            self.message_id,
+                                        )
+                                        .reply_markup(inline_keyboard),
+                                ))
+                                .clone()
                         }
                     }
                 }
