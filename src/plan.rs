@@ -4,24 +4,44 @@ use serde::{Deserialize, Serialize};
 
 use crate::button::{Button, ButtonKind};
 use crate::meal::Meal;
+use crate::state::HasId;
+use crate::StateLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Plan {
     pub meals: Vec<Meal>,
     pub days: usize,
+    pub chat_id: i64,
     pub id: String,
 }
 
+impl HasId for Plan {
+    fn id(&self) -> String {
+        self.id.clone()
+    }
+    fn chat_id(&self) -> i64 {
+        self.chat_id
+    }
+    fn save(&self, state: &StateLock) -> Self {
+        match state.write().add(self) {
+            Ok(_) => log::debug!("Saved plan"),
+            Err(_) => log::warn!("Error saving plan"),
+        }
+        self.clone()
+    }
+}
+
 impl Plan {
-    pub fn new(meals: Vec<Meal>) -> Self {
+    pub fn new(chat_id: i64, meals: Vec<Meal>) -> Self {
         Self {
+            chat_id,
             meals: meals.clone(),
             days: meals.len(),
             id: nanoid!(),
         }
     }
 
-    pub fn gen(meals: Vec<Meal>, amount: usize) -> Self {
+    pub fn gen(chat_id: i64, meals: Vec<Meal>, amount: usize) -> Self {
         let weights: Vec<f64> = meals
             .iter()
             .map(|meal| meal.rating.unwrap_or(1) as f64)
@@ -33,6 +53,7 @@ impl Plan {
             .collect();
         let days = meal_plan.len();
         Self {
+            chat_id,
             meals: meal_plan,
             days: days,
             id: nanoid!(),
@@ -41,15 +62,20 @@ impl Plan {
 
     pub fn buttons(&self) -> Vec<Vec<Button>> {
         self.meals
-            .iter()
-            .map(|meal| {
-                vec![Button::new(
-                    meal.name.clone(),
-                    ButtonKind::DisplayPlanMeal {
-                        meal: meal.clone(),
-                        plan: self.clone(),
-                    },
-                )]
+            .as_slice()
+            .chunks(4)
+            .map(|row| {
+                row.iter()
+                    .map(|meal| {
+                        Button::new(
+                            meal.name.clone(),
+                            ButtonKind::DisplayPlanMeal {
+                                meal_id: meal.id.clone(),
+                                plan_id: self.id.clone(),
+                            },
+                        )
+                    })
+                    .collect::<Vec<_>>()
             })
             .collect()
     }

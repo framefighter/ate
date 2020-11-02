@@ -5,6 +5,7 @@ use teloxide::types::{InputFile, PhotoSize, ReplyMarkup};
 
 use crate::keyboard::Keyboard;
 use crate::request::RequestKind;
+use crate::state::HasId;
 use crate::{ContextMessage, StateLock};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,11 +16,33 @@ pub struct Meal {
     pub url: Option<String>,
     pub tags: Vec<String>,
     pub photos: Vec<PhotoSize>,
+    pub chat_id: i64,
+    pub user_id: i32,
+    pub username: String,
+}
+
+impl HasId for Meal {
+    fn id(&self) -> String {
+        self.id.clone()
+    }
+    fn chat_id(&self) -> i64 {
+        self.chat_id
+    }
+    fn save(&self, state: &StateLock) -> Self {
+        match state.write().add(self) {
+            Ok(_) => log::debug!("Saved meal"),
+            Err(_) => log::warn!("Error saving meal"),
+        }
+        self.clone()
+    }
 }
 
 impl Meal {
-    pub fn new(name: &String) -> Self {
+    pub fn new(name: &String, chat_id: i64, user_id: i32, username: String) -> Self {
         Self {
+            chat_id,
+            user_id,
+            username,
             id: nanoid!(),
             name: name.to_string(),
             rating: None,
@@ -29,13 +52,23 @@ impl Meal {
         }
     }
 
+    pub fn rename(&mut self, name: String) -> &mut Self {
+        self.name = name;
+        self
+    }
+
     pub fn rate(&mut self, rating: Option<u8>) -> &mut Self {
         self.rating = rating;
         self
     }
 
-    pub fn tag(&mut self, tags: Option<Vec<String>>) -> &mut Self {
-        self.tags.append(&mut tags.unwrap_or(vec![]));
+    pub fn tag(&mut self, tags: Vec<String>) -> &mut Self {
+        self.tags.append(&mut tags.clone());
+        self
+    }
+
+    pub fn set_tags(&mut self, tags: Vec<String>) -> &mut Self {
+        self.tags = tags;
         self
     }
 
@@ -46,14 +79,6 @@ impl Meal {
 
     pub fn photo(&mut self, photo: PhotoSize) -> &mut Self {
         self.photos.push(photo);
-        self
-    }
-
-    pub fn save(&self, state: &StateLock) -> &Self {
-        state
-            .write()
-            .meals_mut()
-            .insert(self.id.clone(), self.clone());
         self
     }
 

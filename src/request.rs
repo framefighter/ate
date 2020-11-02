@@ -1,19 +1,20 @@
 use teloxide::requests::*;
 use teloxide::types::*;
 
-use crate::poll::{Poll, PollKind};
+use crate::poll::PollBuildStepOne;
+use crate::state::HasId;
 use crate::StateLock;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum RequestKind {
     Message(SendMessage, bool),
     Photo(SendPhoto),
     EditMessage(EditMessageText),
     EditInlineMessage(EditInlineMessageText),
-    EditMedia(EditMessageMedia),
-    EditInlineMedia(EditInlineMessageMedia),
-    Poll(SendPoll, PollKind, String),
-    StopPoll(StopPoll),
+    // EditMedia(EditMessageMedia),
+    // EditInlineMedia(EditInlineMessageMedia),
+    Poll(SendPoll, PollBuildStepOne),
+    StopPoll(StopPoll, Option<String>),
     DeleteMessage(DeleteMessage),
     EditReplyMarkup(EditMessageReplyMarkup),
     CallbackAnswer(AnswerCallbackQuery),
@@ -21,7 +22,7 @@ pub enum RequestKind {
     Pin(PinChatMessage),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RequestResult {
     pub requests: Vec<RequestKind>,
 }
@@ -77,14 +78,14 @@ impl RequestResult {
                     Ok(_) => log::info!("Edit Inline Message"),
                     Err(err) => log::warn!("Edit Inline Message: {}", err),
                 },
-                RequestKind::EditMedia(send_request) => match send_request.send().await {
-                    Ok(_) => log::info!("Edit Media"),
-                    Err(err) => log::warn!("Edit Media: {}", err),
-                },
-                RequestKind::EditInlineMedia(send_request) => match send_request.send().await {
-                    Ok(_) => log::info!("Edit Inline Media"),
-                    Err(err) => log::warn!("Edit Inline Media: {}", err),
-                },
+                // RequestKind::EditMedia(send_request) => match send_request.send().await {
+                //     Ok(_) => log::info!("Edit Media"),
+                //     Err(err) => log::warn!("Edit Media: {}", err),
+                // },
+                // RequestKind::EditInlineMedia(send_request) => match send_request.send().await {
+                //     Ok(_) => log::info!("Edit Inline Media"),
+                //     Err(err) => log::warn!("Edit Inline Media: {}", err),
+                // },
                 RequestKind::EditCaption(send_request) => match send_request.send().await {
                     Ok(_) => log::info!("Edit Caption"),
                     Err(err) => log::warn!("Edit Caption: {}", err),
@@ -97,45 +98,44 @@ impl RequestResult {
                     Ok(_) => log::info!("Pin Message"),
                     Err(err) => log::warn!("Pin Message: {}", err),
                 },
-                RequestKind::Poll(send_request, poll_kind, keyboard_id) => {
-                    match send_request.send().await {
-                        Ok(message) => match message.clone() {
-                            Message {
-                                kind:
-                                    MessageKind::Common(MessageCommon {
-                                        media_kind: MediaKind::Poll(MediaPoll { poll, .. }),
-                                        ..
-                                    }),
-                                id: message_id,
-                                chat:
-                                    Chat {
-                                        id: chat_id_raw, ..
-                                    },
-                                ..
-                            } => {
-                                let poll_id = poll.id;
-                                let chat_id = ChatId::Id(chat_id_raw);
-                                Poll::new(
-                                    poll_id,
-                                    chat_id,
-                                    message_id,
-                                    poll_kind.clone(),
-                                    keyboard_id.clone(),
-                                )
-                                .save(&state);
-                                log::info!("Send Poll",);
-                            }
-                            _ => log::warn!("No Poll found in Message: {:?}", message),
-                        },
-                        Err(err) => log::warn!("Send Poll: {}", err),
+                RequestKind::Poll(send_request, poll_builder) => match send_request.send().await {
+                    Ok(message) => match message.clone() {
+                        Message {
+                            kind:
+                                MessageKind::Common(MessageCommon {
+                                    media_kind: MediaKind::Poll(MediaPoll { poll, .. }),
+                                    ..
+                                }),
+                            id: message_id,
+                            ..
+                        } => {
+                            let poll_id = poll.id;
+                            poll_builder.finalize(poll_id, message_id).save(&state);
+                            log::info!("Send Poll",);
+                        }
+                        _ => log::warn!("No Poll found in Message: {:?}", message),
+                    },
+                    Err(err) => log::warn!("Send Poll: {}", err),
+                },
+                RequestKind::StopPoll(send_request, poll_id_opt) => match send_request.send().await
+                {
+                    Ok(_) => {
+                        if let Some(poll_id) = poll_id_opt {
+                            // match state.write().remove(&poll_id) {
+                            //     Ok(_) => log::debug!("Remove stopped poll"),
+                            //     Err(_) => log::warn!("Error removing stopped poll"),
+                            // }
+                        }
+                        log::info!("Stopping Poll")
                     }
-                }
-                RequestKind::StopPoll(send_request) => match send_request.send().await {
-                    Ok(_) => log::info!("Stopping Poll"),
                     Err(err) => log::warn!("Error Stop Poll: {}", err),
                 },
             }
         }
-        state.write().save_tg();
+        // log::debug!("KEYBS: {:?}", state.read().tg.keyboards.len());
+        // log::debug!("Chat: {:?}", state.read().chats);
+        // log::debug!("MEALS: {:?}", state.read().tg.meals.len());
+        // log::debug!("PLANS: {:?}", state.read().tg.plans.len());
+        // state.write().save();
     }
 }

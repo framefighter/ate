@@ -56,9 +56,14 @@ save, create, plan, and admire your meals with telegram.
 
 - [X] `/plan` now shows current plan for this chat (can be changed with `/plan <days>` or **REROLL**)
 
+### v0.5.0
+
+- [X] State refactor
+- [X] Verbose debug info
+
 ##### bugs
 
-- [ ] Keyboards not getting removed consistently
+- [ ] Keyboards not getting removed consistently (unconfirmed)
 
 ### future releases
 

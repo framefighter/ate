@@ -1,173 +1,130 @@
 use pickledb::error::Error;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde::{de::DeserializeOwned, Serialize};
 
-use crate::db::{DBKeys, StoreHandler};
-use crate::keyboard::Keyboard;
-use crate::meal::Meal;
-use crate::plan::Plan;
-use crate::poll::Poll;
-use crate::Config;
+use crate::store_handler::{DBKeys, StoreHandler};
+use crate::{Config, StateLock};
 
-pub struct State {
-    sh: StoreHandler,
-    tg: TgState,
-    pub config: Config,
+pub trait HasId {
+    fn id(&self) -> String;
+    fn chat_id(&self) -> i64;
+    fn save(&self, state: &StateLock) -> Self;
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct TgState {
-    pub keyboards: HashMap<String, Keyboard>,
-    pub meals: HashMap<String, Meal>,
-    pub polls: HashMap<String, Poll>,
+pub struct State {
+    store_handler: StoreHandler,
+    pub config: Config,
 }
 
 impl State {
     pub fn new(config: Config) -> Self {
-        let sh = StoreHandler::new(config.backup);
-        let tg_state_opt = sh.state_db.get::<TgState>(&DBKeys::State.to_string());
-        let tg = match tg_state_opt {
-            Some(tg_state) => {
-                log::info!("Found existing telegram state!");
-                tg_state
-            }
-            None => {
-                log::info!("Create new telegram state!");
-                TgState {
-                    keyboards: HashMap::new(),
-                    meals: HashMap::new(),
-                    polls: HashMap::new(),
-                }
-            }
-        };
-        Self { sh, tg, config }
-    }
-
-    pub fn set_tg(&mut self, tg_state: TgState) -> &mut Self {
-        self.tg = tg_state;
-        self
-    }
-
-    pub fn save_tg(&mut self) {
-        match self
-            .sh
-            .state_db
-            .set(&DBKeys::State.to_string(), &self.tg.clone())
-        {
-            Ok(()) => log::info!("Saved state!"),
-            Err(err) => log::warn!("{}", err),
+        let mut store_handler = StoreHandler::new(config.backup);
+        for admin in config.default_admins.clone() {
+            let _ = store_handler.db.lrem_value(&DBKeys::Whitelist.to_string(), &admin);
+            store_handler.db.ladd(&DBKeys::Whitelist.to_string(), &admin);
         }
-        // log::debug!(
-        //     "K: {} > {:#?} | M: {} | P: {}",
-        //     self.keyboards().len(),
-        //     self.keyboards(),
-        //     self.meals().len(),
-        //     self.polls().len()
-        // );
-    }
-
-    pub fn get_tg(&self) -> Option<TgState> {
-        self.sh.state_db.get::<TgState>(&DBKeys::State.to_string())
-    }
-
-    pub fn meals(&self) -> &HashMap<String, Meal> {
-        &self.tg.meals
-    }
-    pub fn keyboards(&self) -> &HashMap<String, Keyboard> {
-        &self.tg.keyboards
-    }
-    pub fn polls(&self) -> &HashMap<String, Poll> {
-        &self.tg.polls
-    }
-    pub fn meals_mut(&mut self) -> &mut HashMap<String, Meal> {
-        &mut self.tg.meals
-    }
-    pub fn keyboards_mut(&mut self) -> &mut HashMap<String, Keyboard> {
-        &mut self.tg.keyboards
-    }
-    pub fn polls_mut(&mut self) -> &mut HashMap<String, Poll> {
-        &mut self.tg.polls
-    }
-    pub fn rate_meal(&mut self, meal_id: String, rating: u8) -> Result<Meal, ()> {
-        match self.meals_mut().get_mut(&meal_id) {
-            Some(meal) => {
-                meal.rate(Some(rating));
-                Ok(meal.clone())
-            }
-            None => Err(()),
+        Self {
+            store_handler,
+            config,
         }
     }
 
-    pub fn get_saved_meal(&self, meal_id: String) -> Option<Meal> {
-        for item in self.sh.db.liter(&DBKeys::Meals.to_string()) {
-            if let Some(meal) = item.get_item::<Meal>() {
-                if meal.id == meal_id {
-                    return Some(meal);
-                }
-            }
+    pub fn add<T: Serialize + HasId + Clone>(&mut self, entry: &T) -> Result<T, Error> {
+        match self.store_handler.db.set::<T>(&entry.id(), entry) {
+            Ok(_) => Ok(entry.clone()),
+            Err(err) => Err(err),
         }
-        None
     }
 
-    pub fn get_saved_meals(&self) -> Vec<Meal> {
-        self.sh
+    pub fn get<T: DeserializeOwned>(&self, id: &String) -> Option<T> {
+        self.store_handler.db.get::<T>(id)
+    }
+
+    pub fn all<T: DeserializeOwned + HasId>(&self) -> Vec<T> {
+        self.store_handler
             .db
-            .liter(&DBKeys::Meals.to_string())
-            .filter_map(|item| item.get_item::<Meal>())
+            .get_all()
+            .iter()
+            .filter_map(|key| self.store_handler.db.get::<T>(&key))
             .collect()
     }
 
-    pub fn get_saved_meals_by_name(&self, meal_name: String) -> Vec<Meal> {
-        self.sh
+    pub fn all_chat<T: DeserializeOwned + HasId>(&self, chat_id: i64) -> Vec<T> {
+        self.store_handler
             .db
-            .liter(&DBKeys::Meals.to_string())
-            .filter_map(|item| item.get_item::<Meal>())
-            .filter(|meal| meal.name.to_uppercase() == meal_name.to_uppercase())
+            .get_all()
+            .iter()
+            .filter_map(|key| self.store_handler.db.get::<T>(&key))
+            .filter(|entry| entry.chat_id() == chat_id)
             .collect()
     }
 
-    pub fn save_meal(&mut self, meal: &Meal) {
-        self.sh.db.ladd(&DBKeys::Meals.to_string(), meal);
-        log::info!("Saving Meal: {:?}", meal);
+    pub fn find<F, T: DeserializeOwned + HasId>(&self, chat_id: i64, finder: F) -> Option<T>
+    where
+        F: Fn(&T) -> bool,
+    {
+        self.all_chat(chat_id).into_iter().find(finder)
     }
 
-    pub fn remove_saved_meal(&mut self, meal: &Meal) -> Result<bool, Error> {
-        log::info!("Removing Meal: {:?}", meal);
-        self.sh.db.lrem_value(&DBKeys::Meals.to_string(), meal)
+    pub fn all_find<F, T: DeserializeOwned + HasId>(&self, finder: F) -> Option<T>
+    where
+        F: Fn(&T) -> bool,
+    {
+        self.all().into_iter().find(finder)
     }
 
-    pub fn remove_saved_meal_by_id(&mut self, meal_id: String) {
-        if let Some(meal) = self.get_saved_meal(meal_id.clone()) {
-            match self.sh.db.lrem_value(&DBKeys::Meals.to_string(), &meal) {
-                Ok(rem) => log::info!("Removed Meal: {:?}? {}", meal, rem),
-                Err(err) => log::warn!("{}", err),
+    pub fn filter<F, T: DeserializeOwned + HasId>(&self, chat_id: i64, finder: F) -> Vec<T>
+    where
+        F: Fn(&T) -> bool,
+    {
+        self.all_chat(chat_id).into_iter().filter(finder).collect()
+    }
+
+    pub fn modify<F, T: DeserializeOwned + Serialize + Clone + HasId + std::fmt::Debug>(
+        &mut self,
+        id: &String,
+        modifier: F,
+    ) -> Result<T, String>
+    where
+        F: Fn(T) -> T,
+    {
+        match self.get::<T>(id) {
+            Some(entry) => {
+                let modified = modifier(entry);
+                match self.remove(id) {
+                    Ok(_) => log::debug!("Removed original entry"),
+                    Err(_) => {
+                        log::warn!("Error removing original entry");
+                        return Err(format!("Failed to remove original entry!"));
+                    }
+                }
+                match self.add(&modified) {
+                    Ok(added) => {
+                        log::debug!("Added modified entry");
+                        Ok(added)
+                    }
+                    Err(_) => Err(format!("Failed to add modified entry!")),
+                }
             }
-        } else {
-            log::warn!("Meal to remove not found: {}", meal_id);
+            None => Err(format!("No entry to modify found!")),
         }
+    }
+
+    pub fn remove(&mut self, id: &String) -> Result<bool, Error> {
+        self.store_handler.db.rem(id)
     }
 
     pub fn whitelist_user(&mut self, username: String) {
-        self.sh.db.ladd(&DBKeys::Whitelist.to_string(), &username);
+        self.store_handler
+            .db
+            .ladd(&DBKeys::Whitelist.to_string(), &username);
         log::info!("Whitelisting User: {}", username);
     }
 
     pub fn get_whitelisted_users(&self) -> Vec<String> {
-        self.sh
+        self.store_handler
             .db
             .liter(&DBKeys::Whitelist.to_string())
             .filter_map(|item| item.get_item::<String>())
             .collect()
-    }
-
-    pub fn save_plan(&mut self, chat_id: i64, meal_plan: Plan) {
-        match self.sh.plan_db.set(&chat_id.to_string(), &meal_plan) {
-            Ok(()) => {}
-            Err(err) => log::warn!("{}", err),
-        }
-    }
-
-    pub fn get_plan(&self, chat_id: i64) -> Option<Plan> {
-        self.sh.plan_db.get(&chat_id.to_string())
     }
 }
